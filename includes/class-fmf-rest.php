@@ -14,6 +14,16 @@ class FMF_REST {
             'callback'            => array( __CLASS__, 'diagnose' ),
         ) );
 
+        register_rest_route( self::NS, '/run-demo', array(
+            'methods'             => 'POST',
+            'permission_callback' => array( __CLASS__, 'permit_admin_or_token' ),
+            'callback'            => array( __CLASS__, 'run_demo' ),
+            'args'                => array(
+                'group_id'    => array( 'type' => 'integer', 'required' => true ),
+                'override_to' => array( 'type' => 'string', 'required' => true ),
+            ),
+        ) );
+
         register_rest_route( self::NS, '/run-weekly', array(
             'methods'             => 'POST',
             'permission_callback' => array( __CLASS__, 'permit_admin_or_token' ),
@@ -97,6 +107,40 @@ class FMF_REST {
             'last_run'          => get_option( 'fmf_last_run', null ),
             'enable_send'       => ! empty( $settings['enable_send'] ),
             'plugin_version'    => FMF_VERSION,
+        );
+    }
+
+    public static function run_demo( $request ) {
+        $gid = intval( $request->get_param( 'group_id' ) );
+        $to  = sanitize_email( (string) $request->get_param( 'override_to' ) );
+        if ( ! $gid || ! $to ) {
+            return new WP_Error( 'bad_request', 'group_id and override_to are required', array( 'status' => 400 ) );
+        }
+        $settings  = get_option( 'fmf_settings', array() );
+        $course_id = ! empty( $settings['course_id'] ) ? intval( $settings['course_id'] ) : FMF_DEFAULT_COURSE_ID;
+
+        $group = null;
+        foreach ( FMF_LifterLMS_Reader::list_groups_for_course( $course_id ) as $g ) {
+            if ( intval( $g['id'] ) === $gid ) { $group = $g; break; }
+        }
+        if ( ! $group ) {
+            return new WP_Error( 'group_not_found', 'group not in target course', array( 'status' => 404 ) );
+        }
+
+        $report = FMF_Report_Builder::synthesize_demo_for_group( $group, $course_id );
+        if ( ! $report ) {
+            return new WP_Error( 'cannot_build', 'group has no students or no lessons', array( 'status' => 422 ) );
+        }
+        $result = FMF_Mailer::send_group_report( $report, $to );
+        return array(
+            'sent'              => $result['sent'],
+            'recipient'         => $to,
+            'group_id'          => $gid,
+            'group_title'       => $group['title'],
+            'total_completions' => $report['total_completions'],
+            'active_members'    => count( $report['members_with_activity'] ),
+            'inactive_members'  => count( $report['members_without_activity'] ),
+            'error'             => $result['error'],
         );
     }
 

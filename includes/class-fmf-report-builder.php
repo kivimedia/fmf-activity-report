@@ -159,4 +159,108 @@ class FMF_Report_Builder {
     public static function week_key_for( $week_start_gmt ) {
         return substr( $week_start_gmt, 0, 10 );
     }
+
+    /**
+     * Build a *synthesised* report using a real group's real staff but
+     * mocked lesson-completion activity, so Tim can see what the email
+     * looks like before any real florist watches anything. Picks 1-4
+     * lessons per student at random, leaves ~25% of students inactive
+     * to demonstrate the "no activity this week" surfacing.
+     */
+    public static function synthesize_demo_for_group( array $group, $course_id ) {
+        $members  = FMF_LifterLMS_Reader::group_members( $group['id'] );
+        $students = FMF_LifterLMS_Reader::group_students( $members );
+        $leaders  = FMF_LifterLMS_Reader::group_leaders( $members );
+
+        // Manual recipient override beats auto-detected leaders.
+        $recipients = get_option( 'fmf_group_recipients', array() );
+        $override = isset( $recipients[ $group['id'] ] ) ? trim( (string) $recipients[ $group['id'] ] ) : '';
+        if ( $override && is_email( $override ) ) {
+            $leaders = array(
+                array(
+                    'user_id'      => 0,
+                    'role'         => 'override',
+                    'email'        => $override,
+                    'display_name' => self::display_name_for_email( $override, $group ),
+                ),
+            );
+        }
+        if ( empty( $leaders ) ) {
+            $leaders = array(
+                array(
+                    'user_id'      => 0,
+                    'role'         => 'demo',
+                    'email'        => 'demo@example.com',
+                    'display_name' => $group['title'] . ' team',
+                ),
+            );
+        }
+        if ( empty( $students ) ) {
+            return null;
+        }
+
+        $lesson_ids = FMF_LifterLMS_Reader::lesson_ids_for_course( $course_id );
+        if ( empty( $lesson_ids ) ) {
+            return null;
+        }
+
+        list( $week_start_gmt, $week_end_gmt ) = self::previous_week_bounds_gmt();
+        $tz = self::site_tz();
+        $week_start_dt = ( new DateTime( $week_start_gmt, new DateTimeZone( 'UTC' ) ) )->setTimezone( $tz );
+        $week_end_dt   = ( new DateTime( $week_end_gmt,   new DateTimeZone( 'UTC' ) ) )->setTimezone( $tz );
+
+        $with    = array();
+        $without = array();
+        $total   = 0;
+
+        foreach ( $students as $idx => $s ) {
+            // ~25% inactive, rest get 1-4 random lessons.
+            $is_active = ( $idx % 4 ) !== 3;
+            if ( ! $is_active ) {
+                $without[] = $s;
+                continue;
+            }
+            $count = 1 + ( crc32( $s['display_name'] ) % 4 );
+            $picks = array();
+            $used  = array();
+            for ( $i = 0; $i < $count && count( $used ) < count( $lesson_ids ); $i++ ) {
+                do {
+                    $li = $lesson_ids[ ( crc32( $s['display_name'] . '|' . $i ) ) % count( $lesson_ids ) ];
+                } while ( isset( $used[ $li ] ) && count( $used ) < count( $lesson_ids ) );
+                $used[ $li ] = true;
+
+                // Spread completion timestamps across the week, deterministically.
+                $offset_days = ( $i + ( crc32( $s['display_name'] . $i ) % 7 ) ) % 7;
+                $stamp_dt = clone $week_start_dt;
+                $stamp_dt->modify( '+' . $offset_days . ' days' )->setTime( 14, 5 );
+                $picks[] = array(
+                    'lesson_id'    => $li,
+                    'lesson_title' => get_the_title( $li ) ?: ( 'Lesson #' . $li ),
+                    'completed_at' => $stamp_dt->format( 'Y-m-d H:i:s' ),
+                );
+            }
+            $with[] = array(
+                'user'         => $s,
+                'lessons'      => $picks,
+                'lesson_count' => count( $picks ),
+                'last_at'      => self::latest_completion_local( $picks ),
+            );
+            $total += count( $picks );
+        }
+
+        return array(
+            'group'                    => $group,
+            'leader'                   => $leaders[0],
+            'leaders'                  => $leaders,
+            'week_start_local'         => $week_start_dt->format( 'Y-m-d H:i' ),
+            'week_end_local'           => $week_end_dt->format( 'Y-m-d H:i' ),
+            'week_start_label'         => $week_start_dt->format( 'M j' ),
+            'week_end_label'           => $week_end_dt->format( 'M j, Y' ),
+            'members_with_activity'    => $with,
+            'members_without_activity' => $without,
+            'total_completions'        => $total,
+            'total_members'            => count( $students ),
+            'has_activity'             => $total > 0,
+        );
+    }
 }
