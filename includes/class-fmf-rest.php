@@ -14,6 +14,32 @@ class FMF_REST {
             'callback'            => array( __CLASS__, 'diagnose' ),
         ) );
 
+        register_rest_route( self::NS, '/find-user-group', array(
+            'methods'             => 'GET',
+            'permission_callback' => array( __CLASS__, 'permit_admin' ),
+            'callback'            => array( __CLASS__, 'find_user_group' ),
+            'args'                => array(
+                'user_id' => array( 'type' => 'integer', 'required' => true ),
+            ),
+        ) );
+
+        register_rest_route( self::NS, '/probe-completions', array(
+            'methods'             => 'GET',
+            'permission_callback' => array( __CLASS__, 'permit_admin' ),
+            'callback'            => array( __CLASS__, 'probe_completions' ),
+        ) );
+
+        register_rest_route( self::NS, '/run-real-window', array(
+            'methods'             => 'POST',
+            'permission_callback' => array( __CLASS__, 'permit_admin_or_token' ),
+            'callback'            => array( __CLASS__, 'run_real_window' ),
+            'args'                => array(
+                'group_id'    => array( 'type' => 'integer', 'required' => true ),
+                'override_to' => array( 'type' => 'string', 'required' => true ),
+                'days_back'   => array( 'type' => 'integer', 'default' => 90 ),
+            ),
+        ) );
+
         register_rest_route( self::NS, '/run-demo', array(
             'methods'             => 'POST',
             'permission_callback' => array( __CLASS__, 'permit_admin_or_token' ),
@@ -51,6 +77,98 @@ class FMF_REST {
             $given = $request->get_header( 'x-fmf-token' );
         }
         return $expected && hash_equals( (string) $expected, (string) $given );
+    }
+
+    public static function find_user_group( $request ) {
+        global $wpdb;
+        $uid = intval( $request->get_param( 'user_id' ) );
+        $table = $wpdb->prefix . 'lifterlms_user_postmeta';
+        $rows = $wpdb->get_results( $wpdb->prepare(
+            "SELECT post_id, meta_value AS role FROM {$table} WHERE user_id=%d AND meta_key=%s",
+            $uid, '_group_role'
+        ), ARRAY_A );
+        $out = array();
+        foreach ( $rows as $r ) {
+            $out[] = array(
+                'group_id' => intval( $r['post_id'] ),
+                'role'     => $r['role'],
+                'title'    => get_the_title( intval( $r['post_id'] ) ),
+            );
+        }
+        return array( 'user_id' => $uid, 'groups' => $out );
+    }
+
+    public static function probe_completions() {
+        global $wpdb;
+        $settings  = get_option( 'fmf_settings', array() );
+        $course_id = ! empty( $settings['course_id'] ) ? intval( $settings['course_id'] ) : FMF_DEFAULT_COURSE_ID;
+        $lesson_ids = FMF_LifterLMS_Reader::lesson_ids_for_course( $course_id );
+        $table = $wpdb->prefix . 'lifterlms_user_postmeta';
+
+        // Cross-reference: of users who completed lessons, which ones are in any group?
+        $completers = $wpdb->get_col( $wpdb->prepare(
+            "SELECT DISTINCT user_id FROM {$table} WHERE meta_key=%s AND meta_value=%s",
+            '_is_complete', 'yes'
+        ) );
+        $by_user = array();
+        if ( $completers ) {
+            $ph = implode( ',', array_fill( 0, count( $completers ), '%d' ) );
+            $params = array_merge( array( '_is_complete', 'yes' ), array_map( 'intval', $completers ) );
+            $rows = $wpdb->get_results( $wpdb->prepare(
+                "SELECT user_id, COUNT(*) AS n, MAX(updated_date) AS last_at FROM {$table} WHERE meta_key=%s AND meta_value=%s AND user_id IN ({$ph}) GROUP BY user_id ORDER BY last_at DESC",
+                $params
+            ), ARRAY_A );
+            foreach ( $rows as $r ) {
+                $uid = intval( $r['user_id'] );
+                $u = get_userdata( $uid );
+                $group_rows = $wpdb->get_results( $wpdb->prepare(
+                    "SELECT post_id, meta_value AS role FROM {$table} WHERE user_id=%d AND meta_key=%s",
+                    $uid, '_group_role'
+                ), ARRAY_A );
+                $by_user[] = array(
+                    'user_id'    => $uid,
+                    'name'       => $u ? $u->display_name : '(unknown)',
+                    'email'      => $u ? $u->user_email : '',
+                    'completions'=> intval( $r['n'] ),
+                    'last_at'    => $r['last_at'],
+                    'groups'     => array_map( function( $g ) {
+                        return array(
+                            'group_id' => intval( $g['post_id'] ),
+                            'title'    => get_the_title( intval( $g['post_id'] ) ),
+                            'role'     => $g['role'],
+                        );
+                    }, $group_rows ),
+                );
+            }
+        }
+
+        $key_freq = $wpdb->get_results( "SELECT meta_key, COUNT(*) AS n FROM {$table} GROUP BY meta_key ORDER BY n DESC LIMIT 12", ARRAY_A );
+
+        $total_complete = $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$table} WHERE meta_key=%s AND meta_value=%s", '_is_complete', 'yes' ) );
+
+        $latest = $wpdb->get_row( $wpdb->prepare( "SELECT user_id, post_id, updated_date FROM {$table} WHERE meta_key=%s AND meta_value=%s ORDER BY updated_date DESC LIMIT 1", '_is_complete', 'yes' ), ARRAY_A );
+
+        $course_complete_count = 0;
+        $course_latest = null;
+        if ( ! empty( $lesson_ids ) ) {
+            $placeholders = implode( ',', array_fill( 0, count( $lesson_ids ), '%d' ) );
+            $sql = "SELECT COUNT(*) FROM {$table} WHERE meta_key=%s AND meta_value=%s AND post_id IN ({$placeholders})";
+            $params = array_merge( array( '_is_complete', 'yes' ), array_map( 'intval', $lesson_ids ) );
+            $course_complete_count = (int) $wpdb->get_var( $wpdb->prepare( $sql, $params ) );
+
+            $sql2 = "SELECT user_id, post_id, updated_date FROM {$table} WHERE meta_key=%s AND meta_value=%s AND post_id IN ({$placeholders}) ORDER BY updated_date DESC LIMIT 5";
+            $course_latest = $wpdb->get_results( $wpdb->prepare( $sql2, $params ), ARRAY_A );
+        }
+
+        return array(
+            'lifterlms_user_postmeta_keys' => $key_freq,
+            'all_courses_total_complete'   => (int) $total_complete,
+            'all_courses_latest_complete'  => $latest,
+            'course_5685_total_complete'   => $course_complete_count,
+            'course_5685_latest_5'         => $course_latest,
+            'course_5685_lesson_count'     => count( $lesson_ids ),
+            'completers_breakdown'         => $by_user,
+        );
     }
 
     public static function diagnose() {
@@ -107,6 +225,39 @@ class FMF_REST {
             'last_run'          => get_option( 'fmf_last_run', null ),
             'enable_send'       => ! empty( $settings['enable_send'] ),
             'plugin_version'    => FMF_VERSION,
+        );
+    }
+
+    public static function run_real_window( $request ) {
+        $gid = intval( $request->get_param( 'group_id' ) );
+        $to  = sanitize_email( (string) $request->get_param( 'override_to' ) );
+        $days = max( 1, intval( $request->get_param( 'days_back' ) ) );
+        $settings  = get_option( 'fmf_settings', array() );
+        $course_id = ! empty( $settings['course_id'] ) ? intval( $settings['course_id'] ) : FMF_DEFAULT_COURSE_ID;
+
+        $group = null;
+        foreach ( FMF_LifterLMS_Reader::list_groups_for_course( $course_id ) as $g ) {
+            if ( intval( $g['id'] ) === $gid ) { $group = $g; break; }
+        }
+        if ( ! $group ) {
+            return new WP_Error( 'group_not_found', 'group not in target course', array( 'status' => 404 ) );
+        }
+
+        $report = FMF_Report_Builder::build_real_for_group_window( $group, $days, $course_id );
+        if ( ! $report ) {
+            return new WP_Error( 'cannot_build', 'group does not qualify (need 2+ students + recipient)', array( 'status' => 422 ) );
+        }
+        $result = FMF_Mailer::send_group_report( $report, $to );
+        return array(
+            'sent'              => $result['sent'],
+            'recipient'         => $to,
+            'group_id'          => $gid,
+            'group_title'       => $group['title'],
+            'days_back'         => $days,
+            'total_completions' => $report['total_completions'],
+            'active_members'    => count( $report['members_with_activity'] ),
+            'inactive_members'  => count( $report['members_without_activity'] ),
+            'error'             => $result['error'],
         );
     }
 

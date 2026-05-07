@@ -161,6 +161,21 @@ class FMF_Report_Builder {
     }
 
     /**
+     * Build a real report (no synthesis) over a custom date window.
+     * Used for proof-of-concept demos that show the full pipeline:
+     * real LifterLMS DB read -> real activity -> real email.
+     */
+    public static function build_real_for_group_window( array $group, $days_back, $course_id ) {
+        $now_utc = new DateTime( 'now', new DateTimeZone( 'UTC' ) );
+        $end_gmt = $now_utc->format( 'Y-m-d H:i:s' );
+        $start_dt = clone $now_utc;
+        $start_dt->modify( '-' . max( 1, intval( $days_back ) ) . ' days' );
+        $start_gmt = $start_dt->format( 'Y-m-d H:i:s' );
+
+        return self::build_for_group( $group, $start_gmt, $end_gmt, $course_id );
+    }
+
+    /**
      * Build a *synthesised* report using a real group's real staff but
      * mocked lesson-completion activity, so Tim can see what the email
      * looks like before any real florist watches anything. Picks 1-4
