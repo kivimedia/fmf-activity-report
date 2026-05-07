@@ -1,0 +1,8 @@
+.fmf-wrap .fmf-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:16px;}
+.fmf-wrap .fmf-panel{background:#fff;border:1px solid #ddd;border-radius:8px;padding:18px;}
+.fmf-wrap .fmf-panel h2{margin-top:0;}
+.fmf-wrap table.fmf-status{width:100%;border-collapse:collapse;}
+.fmf-wrap table.fmf-status th{text-align:left;font-weight:600;color:#444;padding:6px 0;width:40%;}
+.fmf-wrap table.fmf-status td{padding:6px 0;color:#222;}
+.fmf-wrap .fmf-groups td,.fmf-wrap .fmf-groups th{vertical-align:middle;}
+@media (max-width:1200px){.fmf-wrap .fmf-grid{grid-template-columns:1fr;}}
