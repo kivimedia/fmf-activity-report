@@ -78,6 +78,79 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
     <div class="notice notice-success is-dismissible"><p>Recipient updated for group <code><?php echo intval( $_GET['recipient_saved'] ); ?></code>.</p></div>
   <?php endif; ?>
 
+  <section class="fmf-panel" style="margin-top:24px;" id="fmf-csv-importer">
+    <h2>Bulk-import shop owner emails (CSV / paste)</h2>
+    <p class="description">Paste one row per group. Each row needs a <strong>group identifier</strong> (id, slug, OR exact title) AND an <strong>email</strong>, separated by a comma, tab, or semicolon. Lines starting with <code>#</code> are ignored. Existing mappings are kept unless overwritten by a row in the paste.</p>
+    <details style="margin:8px 0 12px;">
+      <summary style="cursor:pointer;color:#5b3fa5;">Starter list - all groups with 2+ students (copy, paste, fill in emails)</summary>
+      <p style="font-size:12px;color:#666;margin:6px 0;">Pre-formatted CSV - one line per qualifying group. Add the shop owner's email after each comma, then paste into the textarea below.</p>
+      <textarea readonly rows="14" style="width:100%;font-family:monospace;font-size:12px;" onclick="this.select();">
+<?php
+foreach ( $rows as $row ) :
+  $g = $row['group'];
+  if ( $row['student_count'] < 2 ) { continue; }
+?><?php echo intval( $g['id'] ); ?>,<?php if ( $row['override_email'] ) { echo ' ' . esc_html( $row['override_email'] ); } ?> # <?php echo esc_html( html_entity_decode( $g['title'] ) ); ?> (<?php echo intval( $row['student_count'] ); ?> students)
+<?php endforeach; ?></textarea>
+    </details>
+    <details style="margin:8px 0 12px;">
+      <summary style="cursor:pointer;color:#5b3fa5;">Show example formats</summary>
+      <pre style="background:#f6f6f6;padding:10px;font-size:12px;">
+6171, owner@flowerbasketvale.com
+always-in-season, owner@alwaysinseason.com
+Bishop's Flowers, owner@bishopsflowers.com
+6180,	owner@breensflorist.com
+# Comments are ignored
+</pre>
+    </details>
+    <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+      <?php wp_nonce_field( 'fmf_import_recipients_csv' ); ?>
+      <input type="hidden" name="action" value="fmf_import_recipients_csv">
+      <textarea name="csv" rows="8" style="width:100%;font-family:monospace;font-size:13px;" placeholder="group_id_or_slug_or_title, owner_email"></textarea>
+      <div style="margin-top:10px;">
+        <button class="button button-primary" type="submit">Import</button>
+        <span class="description" style="margin-left:8px;">After import, scroll down to see what matched.</span>
+      </div>
+    </form>
+
+    <?php
+    $csv_result = ! empty( $_GET['csv_imported'] ) ? get_transient( 'fmf_csv_import_result' ) : false;
+    if ( $csv_result ) :
+    ?>
+      <div id="fmf-csv-result" style="margin-top:16px;border-top:1px solid #eee;padding-top:14px;">
+        <h3 style="margin-top:0;">Import result</h3>
+        <p>
+          <strong style="color:#2a7;"><?php echo count( $csv_result['matched'] ); ?> saved</strong> -
+          <strong style="color:#a43a3a;"><?php echo count( $csv_result['unknown'] ); ?> unmatched groups</strong> -
+          <strong style="color:#a43a3a;"><?php echo count( $csv_result['bad_email'] ); ?> bad emails</strong>
+        </p>
+        <?php if ( ! empty( $csv_result['matched'] ) ) : ?>
+          <details open><summary>Saved (<?php echo count( $csv_result['matched'] ); ?>)</summary>
+          <table class="widefat striped"><thead><tr><th>Group ID</th><th>Title</th><th>Email</th></tr></thead><tbody>
+          <?php foreach ( $csv_result['matched'] as $m ) : ?>
+            <tr><td><?php echo intval( $m['group_id'] ); ?></td><td><?php echo esc_html( $m['title'] ); ?></td><td><code><?php echo esc_html( $m['email'] ); ?></code></td></tr>
+          <?php endforeach; ?>
+          </tbody></table></details>
+        <?php endif; ?>
+        <?php if ( ! empty( $csv_result['unknown'] ) ) : ?>
+          <details open style="margin-top:10px;"><summary>Unmatched (<?php echo count( $csv_result['unknown'] ); ?>) - fix the group identifier and re-paste</summary>
+          <table class="widefat striped"><thead><tr><th>Line</th><th>Reason</th></tr></thead><tbody>
+          <?php foreach ( $csv_result['unknown'] as $m ) : ?>
+            <tr><td><code><?php echo esc_html( $m['line'] ); ?></code></td><td><?php echo esc_html( $m['reason'] ); ?></td></tr>
+          <?php endforeach; ?>
+          </tbody></table></details>
+        <?php endif; ?>
+        <?php if ( ! empty( $csv_result['bad_email'] ) ) : ?>
+          <details style="margin-top:10px;"><summary>Bad emails (<?php echo count( $csv_result['bad_email'] ); ?>)</summary>
+          <table class="widefat striped"><thead><tr><th>Line</th><th>Bad email field</th></tr></thead><tbody>
+          <?php foreach ( $csv_result['bad_email'] as $m ) : ?>
+            <tr><td><code><?php echo esc_html( $m['line'] ); ?></code></td><td><?php echo esc_html( $m['email'] ); ?></td></tr>
+          <?php endforeach; ?>
+          </tbody></table></details>
+        <?php endif; ?>
+      </div>
+    <?php endif; ?>
+  </section>
+
   <section class="fmf-panel" style="margin-top:24px;">
     <h2>Groups (<?php echo count( $rows ); ?>)</h2>
     <p class="description">A group qualifies when it has 2+ students AND a recipient email (either an auto-detected leader OR a manually mapped shop-owner email). LifterLMS Groups on this site only stores the site admin as the "admin" role - so you'll usually need to fill in the shop owner's email manually here.</p>

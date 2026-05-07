@@ -11,6 +11,7 @@ class FMF_Admin {
         add_action( 'admin_post_fmf_toggle_group',  array( __CLASS__, 'handle_toggle_group' ) );
         add_action( 'admin_post_fmf_save_recipient', array( __CLASS__, 'handle_save_recipient' ) );
         add_action( 'admin_post_fmf_save_recipients_bulk', array( __CLASS__, 'handle_save_recipients_bulk' ) );
+        add_action( 'admin_post_fmf_import_recipients_csv', array( __CLASS__, 'handle_import_recipients_csv' ) );
         add_action( 'admin_post_fmf_send_test',     array( __CLASS__, 'handle_send_test' ) );
         add_action( 'admin_post_fmf_preview',       array( __CLASS__, 'handle_preview' ) );
         add_action( 'admin_post_fmf_run_now',       array( __CLASS__, 'handle_run_now' ) );
@@ -157,6 +158,74 @@ class FMF_Admin {
         }
         update_option( 'fmf_group_recipients', $recipients, false );
         wp_safe_redirect( admin_url( 'admin.php?page=fmf-activity-report&recipients_saved=1' ) );
+        exit;
+    }
+
+    public static function handle_import_recipients_csv() {
+        check_admin_referer( 'fmf_import_recipients_csv' );
+        if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Forbidden' ); }
+
+        $raw = isset( $_POST['csv'] ) ? wp_unslash( $_POST['csv'] ) : '';
+        $settings  = get_option( 'fmf_settings', array() );
+        $course_id = ! empty( $settings['course_id'] ) ? intval( $settings['course_id'] ) : FMF_DEFAULT_COURSE_ID;
+        $groups = FMF_LifterLMS_Reader::list_groups_for_course( $course_id );
+
+        $by_id   = array();
+        $by_slug = array();
+        $by_title= array();
+        foreach ( $groups as $g ) {
+            $by_id[ intval( $g['id'] ) ]                              = $g;
+            $by_slug[ strtolower( $g['slug'] ) ]                      = $g;
+            $by_title[ strtolower( html_entity_decode( $g['title'] ) ) ] = $g;
+        }
+
+        $recipients = get_option( 'fmf_group_recipients', array() );
+        $matched = array(); $unknown = array(); $bad_email = array();
+
+        // Accept comma OR tab OR semicolon between fields. One row per line.
+        $lines = preg_split( "/\r?\n/", trim( (string) $raw ) );
+        foreach ( $lines as $line ) {
+            $line = trim( $line );
+            if ( $line === '' || $line[0] === '#' ) { continue; }
+            // Split on comma/tab/semicolon, allow surrounding spaces
+            $parts = preg_split( '/[\t,;]+/', $line, 2 );
+            if ( count( $parts ) < 2 ) {
+                $unknown[] = array( 'line' => $line, 'reason' => 'no email column' );
+                continue;
+            }
+            $key   = trim( $parts[0], " \"'" );
+            $email = sanitize_email( trim( $parts[1], " \"'" ) );
+            if ( ! $email || ! is_email( $email ) ) {
+                $bad_email[] = array( 'line' => $line, 'email' => $parts[1] );
+                continue;
+            }
+
+            $g = null;
+            if ( ctype_digit( $key ) && isset( $by_id[ intval( $key ) ] ) ) {
+                $g = $by_id[ intval( $key ) ];
+            } elseif ( isset( $by_slug[ strtolower( $key ) ] ) ) {
+                $g = $by_slug[ strtolower( $key ) ];
+            } elseif ( isset( $by_title[ strtolower( html_entity_decode( $key ) ) ] ) ) {
+                $g = $by_title[ strtolower( html_entity_decode( $key ) ) ];
+            }
+            if ( ! $g ) {
+                $unknown[] = array( 'line' => $line, 'reason' => 'no group matched key "' . $key . '"' );
+                continue;
+            }
+
+            $recipients[ $g['id'] ] = $email;
+            $matched[] = array( 'group_id' => $g['id'], 'title' => $g['title'], 'email' => $email );
+        }
+
+        update_option( 'fmf_group_recipients', $recipients, false );
+        set_transient( 'fmf_csv_import_result', array(
+            'matched'   => $matched,
+            'unknown'   => $unknown,
+            'bad_email' => $bad_email,
+            'at'        => time(),
+        ), 5 * MINUTE_IN_SECONDS );
+
+        wp_safe_redirect( admin_url( 'admin.php?page=fmf-activity-report&csv_imported=1#fmf-csv-result' ) );
         exit;
     }
 
