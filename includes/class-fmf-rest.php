@@ -85,6 +85,18 @@ class FMF_REST {
                 'group' => array( 'type' => 'string', 'required' => true ),
             ),
         ) );
+
+        // Deep read-only introspection of one group: seats, ALL members via the
+        // official LifterLMS Groups query (incl. pending/invited), child posts,
+        // invitation rows, and group meta. Read-only; admin gated.
+        register_rest_route( self::NS, '/group-detail', array(
+            'methods'             => 'GET',
+            'permission_callback' => array( __CLASS__, 'permit_admin' ),
+            'callback'            => array( __CLASS__, 'group_detail' ),
+            'args'                => array(
+                'group' => array( 'type' => 'string', 'required' => true ),
+            ),
+        ) );
     }
 
     public static function permit_admin() {
@@ -467,6 +479,91 @@ class FMF_REST {
             'member_count'    => count( $members ),
             'members'         => $members,
         );
+    }
+
+    /**
+     * Read-only deep introspection: where do this group's staff actually live?
+     * Uses the official LLMS_Group_Members_Query / Invitations query when present
+     * so we catch members/invites the raw _group_role read misses.
+     */
+    public static function group_detail( $request ) {
+        global $wpdb;
+        list( , $by_id, $by_slug, $by_title, ) = self::index_groups();
+        $g = self::match_group_key( (string) $request->get_param( 'group' ), $by_id, $by_slug, $by_title );
+        if ( ! $g ) {
+            return new WP_Error( 'group_not_found', 'no group matched key', array( 'status' => 404 ) );
+        }
+        $gid = intval( $g['id'] );
+        $info = array( 'group_id' => $gid, 'title' => $g['title'], 'slug' => $g['slug'] );
+
+        // Seats + model accessors.
+        if ( function_exists( 'llms_get_post' ) ) {
+            $m = llms_get_post( $gid );
+            $info['model_class'] = $m ? get_class( $m ) : 'null';
+            if ( $m ) {
+                if ( method_exists( $m, 'get' ) ) {
+                    $info['seats']      = $m->get( 'seats' );
+                    $info['post_id']    = $m->get( 'post_id' ); // linked course/membership
+                }
+                foreach ( array( 'get_seats_available', 'get_seats_used', 'get_seats_total', 'get_members_count' ) as $fn ) {
+                    if ( method_exists( $m, $fn ) ) {
+                        try { $info[ $fn ] = $m->$fn(); } catch ( \Throwable $e ) { $info[ $fn ] = 'ERR'; }
+                    }
+                }
+            }
+        }
+
+        // Official members query (canonical: includes role + status, incl. invited/pending).
+        if ( class_exists( 'LLMS_Group_Members_Query' ) ) {
+            try {
+                $q = new LLMS_Group_Members_Query( array( 'group' => $gid, 'per_page' => 200, 'status' => array() ) );
+                $rows = array();
+                foreach ( (array) $q->get_members() as $mem ) {
+                    $uid  = is_object( $mem ) && method_exists( $mem, 'get' ) ? intval( $mem->get( 'user_id' ) ) : ( is_array( $mem ) ? intval( $mem['user_id'] ?? 0 ) : intval( $mem ) );
+                    $role = is_object( $mem ) && method_exists( $mem, 'get_role' ) ? $mem->get_role() : ( is_array( $mem ) ? ( $mem['role'] ?? '' ) : '' );
+                    $stat = is_object( $mem ) && method_exists( $mem, 'get' ) ? $mem->get( 'status' ) : ( is_array( $mem ) ? ( $mem['status'] ?? '' ) : '' );
+                    $u    = $uid ? get_userdata( $uid ) : null;
+                    $rows[] = array( 'user_id' => $uid, 'role' => $role, 'status' => $stat, 'email' => $u ? $u->user_email : '', 'name' => $u ? $u->display_name : '' );
+                }
+                $info['members_query'] = array( 'found' => method_exists( $q, 'get_found_results' ) ? $q->get_found_results() : count( $rows ), 'rows' => $rows );
+            } catch ( \Throwable $e ) {
+                $info['members_query'] = 'ERR: ' . $e->getMessage();
+            }
+        } else {
+            $info['members_query'] = 'class LLMS_Group_Members_Query not found';
+        }
+
+        // Raw _group_role rows (what FMF currently reads).
+        $upm = $wpdb->prefix . 'lifterlms_user_postmeta';
+        $info['group_role_rows'] = $wpdb->get_results( $wpdb->prepare(
+            "SELECT user_id, meta_value AS role FROM `$upm` WHERE post_id=%d AND meta_key='_group_role'", $gid
+        ), ARRAY_A );
+        $info['user_postmeta_keys'] = $wpdb->get_results( $wpdb->prepare(
+            "SELECT meta_key, COUNT(*) n FROM `$upm` WHERE post_id=%d GROUP BY meta_key", $gid
+        ), ARRAY_A );
+
+        // Child posts (invitations are often a child CPT).
+        $info['child_posts'] = $wpdb->get_results( $wpdb->prepare(
+            "SELECT ID, post_type, post_status, post_title FROM {$wpdb->posts} WHERE post_parent=%d", $gid
+        ), ARRAY_A );
+
+        // Invitation-style group meta (seats, invitations serialized, etc.).
+        $meta = get_post_meta( $gid );
+        $info['group_meta'] = array();
+        foreach ( $meta as $k => $v ) {
+            $info['group_meta'][ $k ] = ( is_array( $v ) && count( $v ) === 1 ) ? maybe_unserialize( $v[0] ) : $v;
+        }
+
+        // Dedicated invitation tables, if any.
+        foreach ( (array) $wpdb->get_col( "SHOW TABLES LIKE '%invit%'" ) as $it ) {
+            $cols = $wpdb->get_col( "DESCRIBE `$it`" );
+            $key  = in_array( 'group_id', $cols, true ) ? 'group_id' : ( in_array( 'post_id', $cols, true ) ? 'post_id' : null );
+            if ( $key ) {
+                $info[ 'invite_table_' . $it ] = $wpdb->get_results( $wpdb->prepare( "SELECT * FROM `$it` WHERE `$key`=%d", $gid ), ARRAY_A );
+            }
+        }
+
+        return $info;
     }
 
     /**
