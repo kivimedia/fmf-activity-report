@@ -86,6 +86,14 @@ class FMF_REST {
             ),
         ) );
 
+        // Read-only: infer each shop's likely staff by context (email domain,
+        // WooCommerce company, shop-name tokens) from the enrolled student base.
+        register_rest_route( self::NS, '/staff-suggest', array(
+            'methods'             => 'GET',
+            'permission_callback' => array( __CLASS__, 'permit_admin' ),
+            'callback'            => array( __CLASS__, 'staff_suggest' ),
+        ) );
+
         // Deep read-only introspection of one group: seats, ALL members via the
         // official LifterLMS Groups query (incl. pending/invited), child posts,
         // invitation rows, and group meta. Read-only; admin gated.
@@ -478,6 +486,172 @@ class FMF_REST {
             'leader_roles'    => $leader_roles,
             'member_count'    => count( $members ),
             'members'         => $members,
+        );
+    }
+
+    /**
+     * Read-only: infer each shop's likely staff from the enrolled-student base by
+     * three contextual signals - (1) email domain == owner's branded domain,
+     * (2) WooCommerce billing company contains the shop name, (3) shop-name token
+     * appears in the user's name/company/email local-part. Never writes.
+     */
+    public static function staff_suggest( $request ) {
+        global $wpdb;
+        $settings  = get_option( 'fmf_settings', array() );
+        $course_id = ! empty( $settings['course_id'] ) ? intval( $settings['course_id'] ) : FMF_DEFAULT_COURSE_ID;
+        $upm = $wpdb->prefix . 'lifterlms_user_postmeta';
+
+        $free = array( 'gmail.com','yahoo.com','hotmail.com','outlook.com','comcast.net','aol.com',
+            'icloud.com','me.com','live.com','msn.com','sbcglobal.net','att.net','verizon.net',
+            'ymail.com','protonmail.com','mail.com','gmx.com','bellsouth.net','cox.net','mac.com' );
+        $stop = array( 'the','and','of','llc','inc','co','company','florist','florists','flowers','flower',
+            'shop','gifts','gift','events','event','floral','by','a','&','design','designs','studio' );
+
+        // The 13 target shops = groups with a recipient override set.
+        $recipients = get_option( 'fmf_group_recipients', array() );
+        $groups = FMF_LifterLMS_Reader::list_groups_for_course( $course_id );
+        $gtitle = array();
+        foreach ( $groups as $g ) { $gtitle[ intval( $g['id'] ) ] = $g['title']; }
+
+        // All enrolled students in the course.
+        $student_ids = $wpdb->get_col( $wpdb->prepare(
+            "SELECT DISTINCT user_id FROM `$upm` WHERE post_id=%d AND meta_key='_status' AND meta_value='enrolled'", $course_id
+        ) );
+        $student_ids = array_map( 'intval', $student_ids );
+
+        // user_id -> [ {gid,title,role} ] for every group membership (one query).
+        $role_rows = $wpdb->get_results( "SELECT post_id, user_id, meta_value AS role FROM `$upm` WHERE meta_key='_group_role'", ARRAY_A );
+        $user_groups = array();
+        foreach ( $role_rows as $r ) {
+            $uid = intval( $r['user_id'] ); $gid = intval( $r['post_id'] );
+            if ( ! isset( $gtitle[ $gid ] ) ) { continue; } // only course groups
+            $user_groups[ $uid ][] = array( 'gid' => $gid, 'title' => $gtitle[ $gid ], 'role' => $r['role'] );
+        }
+
+        // Fetch email/name/registered for all enrolled students in one query.
+        $users = array();
+        if ( $student_ids ) {
+            $ph = implode( ',', array_fill( 0, count( $student_ids ), '%d' ) );
+            $rows = $wpdb->get_results( $wpdb->prepare(
+                "SELECT ID, user_email, display_name, user_registered FROM {$wpdb->users} WHERE ID IN ($ph)", $student_ids
+            ), ARRAY_A );
+            foreach ( $rows as $u ) { $users[ intval( $u['ID'] ) ] = $u; }
+        }
+
+        $domain_of = function( $email ) { $p = strpos( (string) $email, '@' ); return $p === false ? '' : strtolower( substr( $email, $p + 1 ) ); };
+        $tokens_of = function( $s ) use ( $stop ) {
+            $s = strtolower( html_entity_decode( (string) $s ) );
+            $s = preg_replace( '/[^a-z0-9]+/', ' ', $s );
+            $t = array_filter( preg_split( '/\s+/', trim( $s ) ), function( $w ) use ( $stop ) { return strlen( $w ) >= 3 && ! in_array( $w, $stop, true ); } );
+            return array_values( array_unique( $t ) );
+        };
+
+        // Domain histogram across enrolled students (non-free, >=1).
+        $domain_users = array();
+        foreach ( $users as $uid => $u ) {
+            $d = $domain_of( $u['user_email'] );
+            if ( $d && ! in_array( $d, $free, true ) ) { $domain_users[ $d ][] = $uid; }
+        }
+
+        $owner_emails = array_map( 'strtolower', array_values( $recipients ) );
+        $owner_emails[] = 'tim@theprofitableflorist.com';
+
+        $brief = function( $uid ) use ( $users, $user_groups ) {
+            $u = $users[ $uid ];
+            $only_general = false; $grps = isset( $user_groups[ $uid ] ) ? $user_groups[ $uid ] : array();
+            $gids = array_map( function( $x ) { return $x['gid']; }, $grps );
+            if ( $gids === array( 6164 ) ) { $only_general = true; }
+            return array(
+                'user_id'      => $uid,
+                'email'        => $u['user_email'],
+                'name'         => $u['display_name'],
+                'registered'   => $u['user_registered'],
+                'company'      => get_user_meta( $uid, 'billing_company', true ),
+                'groups'       => array_map( function( $x ) { return $x['title'] . ' (' . $x['role'] . ')'; }, $grps ),
+                'only_in_general' => $only_general,
+            );
+        };
+
+        $shops = array();
+        foreach ( $recipients as $gid => $owner_email ) {
+            $gid = intval( $gid );
+            $owner_domain = $domain_of( $owner_email );
+            $is_free = in_array( $owner_domain, $free, true ) || $owner_domain === '';
+            $shop_title = isset( $gtitle[ $gid ] ) ? $gtitle[ $gid ] : '';
+            $shop_tokens = $tokens_of( $shop_title );
+
+            $domain_matches = array();
+            if ( ! $is_free && isset( $domain_users[ $owner_domain ] ) ) {
+                foreach ( $domain_users[ $owner_domain ] as $uid ) {
+                    if ( in_array( strtolower( $users[ $uid ]['user_email'] ), $owner_emails, true ) ) { continue; }
+                    $domain_matches[] = $brief( $uid );
+                }
+            }
+
+            // Token matches (company / name / email local-part) - secondary signal.
+            $token_matches = array();
+            if ( $shop_tokens ) {
+                foreach ( $users as $uid => $u ) {
+                    if ( in_array( strtolower( $u['user_email'] ), $owner_emails, true ) ) { continue; }
+                    $hay = strtolower( $u['display_name'] . ' ' . get_user_meta( $uid, 'billing_company', true ) . ' ' . substr( $u['user_email'], 0, strpos( $u['user_email'] . '@', '@' ) ) );
+                    $hit = array_filter( $shop_tokens, function( $t ) use ( $hay ) { return strpos( $hay, $t ) !== false; } );
+                    if ( $hit ) { $b = $brief( $uid ); $b['matched_tokens'] = array_values( $hit ); $token_matches[] = $b; }
+                }
+            }
+
+            // ALL accounts on the owner's branded domain, enrolled or not - catches
+            // staff who have a user but were never enrolled / never grouped.
+            $all_domain_accounts = array();
+            if ( ! $is_free ) {
+                $like = '%@' . $wpdb->esc_like( $owner_domain );
+                $acct = $wpdb->get_results( $wpdb->prepare(
+                    "SELECT ID, user_email, display_name, user_registered FROM {$wpdb->users} WHERE user_email LIKE %s", $like
+                ), ARRAY_A );
+                foreach ( $acct as $a ) {
+                    $uid = intval( $a['ID'] );
+                    if ( in_array( strtolower( $a['user_email'] ), $owner_emails, true ) ) { continue; }
+                    $grps = isset( $user_groups[ $uid ] ) ? $user_groups[ $uid ] : array();
+                    $all_domain_accounts[] = array(
+                        'user_id'    => $uid,
+                        'email'      => $a['user_email'],
+                        'name'       => $a['display_name'],
+                        'registered' => $a['user_registered'],
+                        'enrolled_in_course' => in_array( $uid, $student_ids, true ),
+                        'groups'     => array_map( function( $x ) { return $x['title'] . ' (' . $x['role'] . ')'; }, $grps ),
+                    );
+                }
+            }
+
+            $shops[] = array(
+                'group_id'      => $gid,
+                'shop'          => $shop_title,
+                'owner_email'   => $owner_email,
+                'owner_domain'  => $owner_domain,
+                'owner_domain_is_free' => $is_free,
+                'all_domain_accounts' => $all_domain_accounts,
+                'domain_staff'  => $domain_matches,
+                'domain_staff_count' => count( $domain_matches ),
+                'token_matches' => $token_matches,
+            );
+        }
+
+        // Non-free domain clusters with 2+ enrolled students (catch shops by domain
+        // even when the owner used a free email).
+        $clusters = array();
+        foreach ( $domain_users as $d => $uids ) {
+            if ( count( $uids ) >= 2 ) {
+                $clusters[] = array( 'domain' => $d, 'count' => count( $uids ),
+                    'users' => array_map( function( $uid ) use ( $users ) { return $users[ $uid ]['user_email'] . ' | ' . $users[ $uid ]['display_name']; }, $uids ) );
+            }
+        }
+        usort( $clusters, function( $a, $b ) { return $b['count'] - $a['count']; } );
+
+        return array(
+            'course_id'        => $course_id,
+            'enrolled_total'   => count( $users ),
+            'target_shops'     => count( $shops ),
+            'shops'            => $shops,
+            'nonfree_domain_clusters' => $clusters,
         );
     }
 
