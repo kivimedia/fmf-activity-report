@@ -75,6 +75,16 @@ class FMF_REST {
             'permission_callback' => array( __CLASS__, 'permit_admin' ),
             'callback'            => array( __CLASS__, 'list_recipients' ),
         ) );
+
+        // Dump full member roster (roles) for one group, by id/slug/title.
+        register_rest_route( self::NS, '/group-members', array(
+            'methods'             => 'GET',
+            'permission_callback' => array( __CLASS__, 'permit_admin' ),
+            'callback'            => array( __CLASS__, 'group_members' ),
+            'args'                => array(
+                'group' => array( 'type' => 'string', 'required' => true ),
+            ),
+        ) );
     }
 
     public static function permit_admin() {
@@ -408,6 +418,54 @@ class FMF_REST {
             'unknown'              => $unknown,
             'bad_email'            => $bad_email,
             'total_recipients_now' => count( $recipients ),
+        );
+    }
+
+    /**
+     * Read-only: full member roster for one group (id|slug|title), with each
+     * member's _group_role and whether they are enrolled in the course.
+     * Also lists ALL distinct _group_role values present, to expose role-naming
+     * surprises (e.g. staff stored under an unexpected role string).
+     */
+    public static function group_members( $request ) {
+        global $wpdb;
+        list( , $by_id, $by_slug, $by_title, $settings ) = self::index_groups();
+        $g = self::match_group_key( (string) $request->get_param( 'group' ), $by_id, $by_slug, $by_title );
+        if ( ! $g ) {
+            return new WP_Error( 'group_not_found', 'no group matched key', array( 'status' => 404 ) );
+        }
+        $course_id = ! empty( $settings['course_id'] ) ? intval( $settings['course_id'] ) : FMF_DEFAULT_COURSE_ID;
+
+        $table = $wpdb->prefix . 'lifterlms_user_postmeta';
+        $rows = $wpdb->get_results( $wpdb->prepare(
+            "SELECT user_id, meta_value AS role FROM {$table} WHERE post_id=%d AND meta_key=%s",
+            intval( $g['id'] ), '_group_role'
+        ), ARRAY_A );
+
+        $leader_roles = FMF_LifterLMS_Reader::LEADER_ROLES;
+        $members = array();
+        foreach ( $rows as $r ) {
+            $uid = intval( $r['user_id'] );
+            $u   = get_userdata( $uid );
+            $enrolled = function_exists( 'llms_is_user_enrolled' ) ? (bool) llms_is_user_enrolled( $uid, $course_id ) : null;
+            $members[] = array(
+                'user_id'      => $uid,
+                'role'         => (string) $r['role'],
+                'counted_as'   => in_array( (string) $r['role'], $leader_roles, true ) ? 'leader' : 'student',
+                'email'        => $u ? $u->user_email : '(no wp user)',
+                'display_name' => $u ? $u->display_name : '',
+                'enrolled_in_course' => $enrolled,
+                'user_exists'  => (bool) $u,
+            );
+        }
+
+        return array(
+            'group_id'        => $g['id'],
+            'title'           => $g['title'],
+            'slug'            => $g['slug'],
+            'leader_roles'    => $leader_roles,
+            'member_count'    => count( $members ),
+            'members'         => $members,
         );
     }
 
