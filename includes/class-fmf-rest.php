@@ -60,6 +60,21 @@ class FMF_REST {
                 'override_to' => array( 'type' => 'string',  'default' => '' ),
             ),
         ) );
+
+        // Bulk-set per-group recipient (team-leader) emails. Body:
+        // { "recipients": { "<group_id|slug|title>": "<email>", ... }, "replace": false }
+        register_rest_route( self::NS, '/set-recipients', array(
+            'methods'             => 'POST',
+            'permission_callback' => array( __CLASS__, 'permit_admin_or_token' ),
+            'callback'            => array( __CLASS__, 'set_recipients' ),
+        ) );
+
+        // List every group with its current recipient + qualification status.
+        register_rest_route( self::NS, '/recipients', array(
+            'methods'             => 'GET',
+            'permission_callback' => array( __CLASS__, 'permit_admin' ),
+            'callback'            => array( __CLASS__, 'list_recipients' ),
+        ) );
     }
 
     public static function permit_admin() {
@@ -302,6 +317,136 @@ class FMF_REST {
             'override_to' => sanitize_email( (string) $request->get_param( 'override_to' ) ),
         );
         return FMF_Cron::run( $args );
+    }
+
+    /**
+     * Resolve the group list for the active course, indexed by id / slug / title
+     * for flexible key matching (mirrors the admin CSV importer).
+     */
+    private static function index_groups() {
+        $settings  = get_option( 'fmf_settings', array() );
+        $course_id = ! empty( $settings['course_id'] ) ? intval( $settings['course_id'] ) : FMF_DEFAULT_COURSE_ID;
+        $groups = FMF_LifterLMS_Reader::list_groups_for_course( $course_id );
+        $by_id = array(); $by_slug = array(); $by_title = array();
+        foreach ( $groups as $g ) {
+            $by_id[ intval( $g['id'] ) ]                                = $g;
+            $by_slug[ strtolower( $g['slug'] ) ]                        = $g;
+            $by_title[ strtolower( html_entity_decode( $g['title'] ) ) ] = $g;
+        }
+        return array( $groups, $by_id, $by_slug, $by_title, $settings );
+    }
+
+    private static function match_group_key( $key, $by_id, $by_slug, $by_title ) {
+        $key = trim( (string) $key );
+        if ( ctype_digit( $key ) && isset( $by_id[ intval( $key ) ] ) ) {
+            return $by_id[ intval( $key ) ];
+        }
+        if ( isset( $by_slug[ strtolower( $key ) ] ) ) {
+            return $by_slug[ strtolower( $key ) ];
+        }
+        $title_key = strtolower( html_entity_decode( $key ) );
+        if ( isset( $by_title[ $title_key ] ) ) {
+            return $by_title[ $title_key ];
+        }
+        return null;
+    }
+
+    private static function min_team_size( $settings ) {
+        return isset( $settings['min_team_size'] ) ? max( 2, intval( $settings['min_team_size'] ) ) : 2;
+    }
+
+    /**
+     * Bulk-assign per-group recipient (team-leader) emails into fmf_group_recipients.
+     * Accepts a map keyed by group_id, group slug, or exact group title.
+     */
+    public static function set_recipients( $request ) {
+        $input = $request->get_param( 'recipients' );
+        if ( ! is_array( $input ) ) {
+            return new WP_Error( 'bad_request', 'recipients must be an object map of { group_id|slug|title : email }', array( 'status' => 400 ) );
+        }
+        $replace = (bool) $request->get_param( 'replace' );
+
+        list( , $by_id, $by_slug, $by_title, $settings ) = self::index_groups();
+        $min = self::min_team_size( $settings );
+
+        $recipients = $replace ? array() : get_option( 'fmf_group_recipients', array() );
+        $matched = array(); $unknown = array(); $bad_email = array();
+
+        foreach ( $input as $key => $email_raw ) {
+            $g = self::match_group_key( $key, $by_id, $by_slug, $by_title );
+            if ( ! $g ) {
+                $unknown[] = array( 'key' => (string) $key, 'email' => (string) $email_raw, 'reason' => 'no group matched' );
+                continue;
+            }
+            $email = sanitize_email( (string) $email_raw );
+            if ( ! $email || ! is_email( $email ) ) {
+                $bad_email[] = array( 'key' => (string) $key, 'group_id' => $g['id'], 'email' => (string) $email_raw );
+                continue;
+            }
+            $recipients[ $g['id'] ] = $email;
+
+            $members  = FMF_LifterLMS_Reader::group_members( $g['id'] );
+            $students = FMF_LifterLMS_Reader::group_students( $members );
+            $matched[] = array(
+                'group_id'      => $g['id'],
+                'title'         => $g['title'],
+                'email'         => $email,
+                'members_total' => count( $members ),
+                'student_count' => count( $students ),
+                'qualifies_now' => ( count( $students ) >= $min ),
+            );
+        }
+
+        update_option( 'fmf_group_recipients', $recipients, false );
+
+        return array(
+            'ok'                   => true,
+            'replace'              => $replace,
+            'min_team_size'        => $min,
+            'matched_count'        => count( $matched ),
+            'matched'              => $matched,
+            'unknown'              => $unknown,
+            'bad_email'            => $bad_email,
+            'total_recipients_now' => count( $recipients ),
+        );
+    }
+
+    /**
+     * Read-only: every group in the course with its recipient + qualification status.
+     */
+    public static function list_recipients() {
+        list( $groups, , , , $settings ) = self::index_groups();
+        $min = self::min_team_size( $settings );
+        $recipients = get_option( 'fmf_group_recipients', array() );
+        $overrides  = get_option( 'fmf_group_overrides', array() );
+
+        $out = array();
+        foreach ( $groups as $g ) {
+            $members  = FMF_LifterLMS_Reader::group_members( $g['id'] );
+            $leaders  = FMF_LifterLMS_Reader::group_leaders( $members );
+            $students = FMF_LifterLMS_Reader::group_students( $members );
+            $override = isset( $recipients[ $g['id'] ] ) ? trim( (string) $recipients[ $g['id'] ] ) : '';
+            $effective = $override ?: ( $leaders ? $leaders[0]['email'] : '' );
+            $enabled  = ! ( isset( $overrides[ $g['id'] ] ) && empty( $overrides[ $g['id'] ] ) );
+            $out[] = array(
+                'group_id'        => $g['id'],
+                'title'           => $g['title'],
+                'slug'            => $g['slug'],
+                'members_total'   => count( $members ),
+                'student_count'   => count( $students ),
+                'override_email'  => $override,
+                'auto_leader'     => $leaders ? $leaders[0]['email'] : '',
+                'effective_email' => $effective,
+                'enabled'         => $enabled,
+                'qualifies'       => ( count( $students ) >= $min && $effective !== '' && $enabled ),
+            );
+        }
+        return array(
+            'min_team_size'    => $min,
+            'group_count'      => count( $out ),
+            'recipients_set'   => count( $recipients ),
+            'groups'           => $out,
+        );
     }
 
     /**
