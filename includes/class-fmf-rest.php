@@ -86,6 +86,17 @@ class FMF_REST {
             ),
         ) );
 
+        // For each target shop, return (creating if needed) the reusable OPEN
+        // invite link the leader shares with staff, + the group management URL.
+        register_rest_route( self::NS, '/invite-links', array(
+            'methods'             => 'POST',
+            'permission_callback' => array( __CLASS__, 'permit_admin_or_token' ),
+            'callback'            => array( __CLASS__, 'invite_links' ),
+            'args'                => array(
+                'create_if_missing' => array( 'type' => 'boolean', 'default' => true ),
+            ),
+        ) );
+
         // Read-only: full enrolled-student roster + enrollment-trigger linkage
         // (students sharing a WC order / group trigger likely belong together).
         register_rest_route( self::NS, '/student-roster', array(
@@ -494,6 +505,76 @@ class FMF_REST {
             'leader_roles'    => $leader_roles,
             'member_count'    => count( $members ),
             'members'         => $members,
+        );
+    }
+
+    /**
+     * For each target shop (groups with a recipient override) return the reusable
+     * OPEN invite link a leader shares with staff (anyone with it self-registers
+     * into the group as a member while seats remain), plus the group management
+     * page URL and whether the assigned owner can actually manage members.
+     */
+    public static function invite_links( $request ) {
+        if ( ! function_exists( 'llms_groups' ) || ! is_object( llms_groups() ) || ! method_exists( llms_groups(), 'invitations' ) ) {
+            return new WP_Error( 'no_groups_api', 'LifterLMS Groups invitations API unavailable', array( 'status' => 500 ) );
+        }
+        $create = (bool) $request->get_param( 'create_if_missing' );
+        $settings  = get_option( 'fmf_settings', array() );
+        $course_id = ! empty( $settings['course_id'] ) ? intval( $settings['course_id'] ) : FMF_DEFAULT_COURSE_ID;
+
+        $groups = FMF_LifterLMS_Reader::list_groups_for_course( $course_id );
+        $gmeta = array();
+        foreach ( $groups as $g ) { $gmeta[ intval( $g['id'] ) ] = $g; }
+
+        $invs = llms_groups()->invitations();
+        $recipients = get_option( 'fmf_group_recipients', array() );
+        $manage_roles = array( 'admin', 'leader', 'primary_admin' );
+
+        $out = array();
+        foreach ( $recipients as $gid => $owner_email ) {
+            $gid = intval( $gid );
+            $g   = isset( $gmeta[ $gid ] ) ? $gmeta[ $gid ] : null;
+
+            $open = $invs->get_open_link( $gid );
+            $created = false;
+            if ( ! $open && $create ) {
+                $open = $invs->create( array( 'group_id' => $gid, 'email' => '', 'role' => 'member' ) );
+                $created = ! is_wp_error( $open );
+            }
+            $link = ( $open && ! is_wp_error( $open ) ) ? $open->get_accept_link() : '';
+
+            // Seats.
+            $members  = FMF_LifterLMS_Reader::group_members( $gid );
+            $seats = null;
+            if ( function_exists( 'llms_get_post' ) ) {
+                $m = llms_get_post( $gid );
+                if ( $m && method_exists( $m, 'get' ) ) { $seats = intval( $m->get( 'seats' ) ); }
+            }
+
+            // Can the assigned owner actually manage/invite?
+            $owner_uid  = email_exists( $owner_email );
+            $owner_role = '';
+            foreach ( $members as $mm ) { if ( intval( $mm['user_id'] ) === intval( $owner_uid ) ) { $owner_role = $mm['role']; break; } }
+
+            $out[] = array(
+                'group_id'         => $gid,
+                'shop'             => $g ? $g['title'] : '',
+                'manage_page_url'  => $g ? $g['permalink'] : get_permalink( $gid ),
+                'open_invite_link' => $link,
+                'invite_created'   => $created,
+                'owner_email'      => $owner_email,
+                'owner_role'       => $owner_role ?: '(not a member of this group)',
+                'owner_can_manage' => in_array( $owner_role, $manage_roles, true ),
+                'seats_total'      => $seats,
+                'seats_used'       => count( $members ),
+                'seats_open'       => ( $seats !== null ) ? max( 0, $seats - count( $members ) ) : null,
+            );
+        }
+
+        return array(
+            'note'       => 'open_invite_link is reusable by multiple staff until seats fill. manage_page_url is where the leader can invite by email + copy this link.',
+            'myaccount_invite_pattern' => '{my-account}/?invite={invite_key}',
+            'shops'      => $out,
         );
     }
 
