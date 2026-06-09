@@ -86,6 +86,14 @@ class FMF_REST {
             ),
         ) );
 
+        // Read-only: full enrolled-student roster + enrollment-trigger linkage
+        // (students sharing a WC order / group trigger likely belong together).
+        register_rest_route( self::NS, '/student-roster', array(
+            'methods'             => 'GET',
+            'permission_callback' => array( __CLASS__, 'permit_admin' ),
+            'callback'            => array( __CLASS__, 'student_roster' ),
+        ) );
+
         // Read-only: infer each shop's likely staff by context (email domain,
         // WooCommerce company, shop-name tokens) from the enrolled student base.
         register_rest_route( self::NS, '/staff-suggest', array(
@@ -486,6 +494,110 @@ class FMF_REST {
             'leader_roles'    => $leader_roles,
             'member_count'    => count( $members ),
             'members'         => $members,
+        );
+    }
+
+    /**
+     * Read-only: full enrolled-student roster with course enrollment trigger,
+     * start date, registration date, and group memberships. Also returns the
+     * 13 target shops' owner triggers + group creation dates, and a map of every
+     * enrollment trigger shared by 2+ students (the order/group linkage signal).
+     */
+    public static function student_roster( $request ) {
+        global $wpdb;
+        $settings  = get_option( 'fmf_settings', array() );
+        $course_id = ! empty( $settings['course_id'] ) ? intval( $settings['course_id'] ) : FMF_DEFAULT_COURSE_ID;
+        $upm = $wpdb->prefix . 'lifterlms_user_postmeta';
+
+        // Course-level meta per user (status, trigger, start date).
+        $cmeta = $wpdb->get_results( $wpdb->prepare(
+            "SELECT user_id, meta_key, meta_value FROM `$upm` WHERE post_id=%d AND meta_key IN ('_status','_enrollment_trigger','_start_date')",
+            $course_id
+        ), ARRAY_A );
+        $cm = array();
+        foreach ( $cmeta as $r ) { $cm[ intval( $r['user_id'] ) ][ $r['meta_key'] ] = $r['meta_value']; }
+
+        // Group memberships (all course groups).
+        $groups = FMF_LifterLMS_Reader::list_groups_for_course( $course_id );
+        $gtitle = array();
+        foreach ( $groups as $g ) { $gtitle[ intval( $g['id'] ) ] = $g['title']; }
+        $role_rows = $wpdb->get_results( "SELECT post_id, user_id, meta_value AS role FROM `$upm` WHERE meta_key='_group_role'", ARRAY_A );
+        $ug = array();
+        foreach ( $role_rows as $r ) {
+            $gid = intval( $r['post_id'] ); $uid = intval( $r['user_id'] );
+            if ( isset( $gtitle[ $gid ] ) ) { $ug[ $uid ][] = $gtitle[ $gid ] . ':' . $r['role']; }
+        }
+
+        // Enrolled student ids.
+        $enrolled = array();
+        foreach ( $cm as $uid => $m ) { if ( ( $m['_status'] ?? '' ) === 'enrolled' ) { $enrolled[] = $uid; } }
+
+        // User rows.
+        $udata = array();
+        if ( $enrolled ) {
+            foreach ( array_chunk( $enrolled, 500 ) as $chunk ) {
+                $ph = implode( ',', array_fill( 0, count( $chunk ), '%d' ) );
+                foreach ( $wpdb->get_results( $wpdb->prepare(
+                    "SELECT ID, user_email, display_name, user_registered FROM {$wpdb->users} WHERE ID IN ($ph)", $chunk
+                ), ARRAY_A ) as $u ) { $udata[ intval( $u['ID'] ) ] = $u; }
+            }
+        }
+
+        // Build roster + trigger index.
+        $students = array();
+        $trigger_index = array();
+        $hist = array();
+        foreach ( $enrolled as $uid ) {
+            $u = $udata[ $uid ] ?? array( 'user_email' => '', 'display_name' => '', 'user_registered' => '' );
+            $trig = $cm[ $uid ]['_enrollment_trigger'] ?? '';
+            $students[] = array(
+                'uid'   => $uid,
+                'email' => $u['user_email'],
+                'name'  => $u['display_name'],
+                'reg'   => $u['user_registered'],
+                'start' => $cm[ $uid ]['_start_date'] ?? '',
+                'trig'  => $trig,
+                'groups'=> $ug[ $uid ] ?? array(),
+            );
+            if ( $trig ) {
+                $trigger_index[ $trig ][] = $u['user_email'];
+                $norm = preg_replace( '/\d+/', '#', $trig );
+                $hist[ $norm ] = ( $hist[ $norm ] ?? 0 ) + 1;
+            }
+        }
+
+        // Owners of the 13 target shops + their triggers + group creation date.
+        $recipients = get_option( 'fmf_group_recipients', array() );
+        $owners = array();
+        foreach ( $recipients as $gid => $owner_email ) {
+            $gid = intval( $gid );
+            $owner_uid = email_exists( $owner_email );
+            $owner_trig = $owner_uid ? ( $cm[ $owner_uid ]['_enrollment_trigger'] ?? '(not course-enrolled)' ) : '(no user)';
+            $post = get_post( $gid );
+            $owners[] = array(
+                'group_id'     => $gid,
+                'shop'         => $gtitle[ $gid ] ?? '',
+                'owner_email'  => $owner_email,
+                'owner_trigger'=> $owner_trig,
+                'group_created'=> $post ? $post->post_date_gmt : '',
+                'shared_with_owner_trigger' => ( $owner_trig && isset( $trigger_index[ $owner_trig ] ) ) ? $trigger_index[ $owner_trig ] : array(),
+            );
+        }
+
+        // Triggers shared by 2+ students (potential same-shop cohorts).
+        $shared = array();
+        foreach ( $trigger_index as $t => $emails ) {
+            if ( count( $emails ) >= 2 ) { $shared[ $t ] = $emails; }
+        }
+
+        return array(
+            'course_id'       => $course_id,
+            'enrolled_count'  => count( $enrolled ),
+            'distinct_users_with_any_course_meta' => count( $cm ),
+            'trigger_histogram' => $hist,
+            'owners'          => $owners,
+            'shared_triggers_2plus' => $shared,
+            'students'        => $students,
         );
     }
 
