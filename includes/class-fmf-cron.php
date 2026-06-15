@@ -8,9 +8,40 @@ class FMF_Cron {
     public static function register() {
         add_filter( 'cron_schedules', array( __CLASS__, 'add_weekly_schedule' ) );
         add_action( FMF_CRON_HOOK, array( __CLASS__, 'run' ) );
+        // One-time migration to pin the weekly send to 06:00 local.
+        add_action( 'plugins_loaded', array( __CLASS__, 'maybe_apply_schedule_migration' ), 20 );
         // Self-heal: if cron got dropped (or activation race left it unscheduled),
         // re-schedule on the next admin request.
         add_action( 'admin_init', array( __CLASS__, 'schedule' ) );
+    }
+
+    /**
+     * One-time migration: pin the weekly send to 06:00 local (America/New_York)
+     * and reschedule. Guarded by the fmf_schedule_6am flag so it runs only once,
+     * leaving later admin edits to the send hour intact.
+     */
+    public static function maybe_apply_schedule_migration() {
+        if ( get_option( 'fmf_schedule_6am' ) ) {
+            return;
+        }
+        $settings = get_option( 'fmf_settings', array() );
+        if ( ! is_array( $settings ) ) {
+            $settings = array();
+        }
+        $settings['send_hour_local'] = 6;
+        if ( empty( $settings['timezone'] ) ) {
+            $settings['timezone'] = 'America/New_York';
+        }
+        update_option( 'fmf_settings', $settings, false );
+
+        // Force a reschedule onto the new hour.
+        $ts = wp_next_scheduled( FMF_CRON_HOOK );
+        if ( $ts ) {
+            wp_unschedule_event( $ts, FMF_CRON_HOOK );
+        }
+        self::schedule();
+
+        update_option( 'fmf_schedule_6am', 1, false );
     }
 
     public static function add_weekly_schedule( $schedules ) {
@@ -37,7 +68,7 @@ class FMF_Cron {
     public static function next_monday_morning_gmt() {
         $settings = get_option( 'fmf_settings', array() );
         $tz_name  = ! empty( $settings['timezone'] ) ? $settings['timezone'] : 'America/New_York';
-        $hour     = isset( $settings['send_hour_local'] ) ? intval( $settings['send_hour_local'] ) : 8;
+        $hour     = isset( $settings['send_hour_local'] ) ? intval( $settings['send_hour_local'] ) : 6;
         try {
             $tz = new DateTimeZone( $tz_name );
         } catch ( Exception $e ) {

@@ -91,7 +91,7 @@ class FMF_Admin {
         $new = wp_parse_args( array(
             'course_id'      => intval( $_POST['course_id'] ?? FMF_DEFAULT_COURSE_ID ),
             'min_team_size'  => max( 2, intval( $_POST['min_team_size'] ?? 2 ) ),
-            'send_hour_local'=> max( 0, min( 23, intval( $_POST['send_hour_local'] ?? 8 ) ) ),
+            'send_hour_local'=> max( 0, min( 23, intval( $_POST['send_hour_local'] ?? 6 ) ) ),
             'timezone'       => sanitize_text_field( $_POST['timezone'] ?? 'America/New_York' ),
             'enable_send'    => ! empty( $_POST['enable_send'] ) ? 1 : 0,
             'test_recipient' => sanitize_email( $_POST['test_recipient'] ?? 'ziv@kivimedia.co' ),

@@ -34,6 +34,14 @@ class FMF_Mailer {
         $body    = self::render_html( $report, $override_to );
         $headers = self::headers( $settings );
 
+        // CC the admin on real weekly reports (but not on test/preview sends,
+        // and never if the admin is already the recipient).
+        if ( ! $override_to && ! empty( $settings['cc_admin'] ) && is_email( $settings['cc_admin'] ) ) {
+            if ( ! in_array( strtolower( $settings['cc_admin'] ), array_map( 'strtolower', $recipients ), true ) ) {
+                $headers[] = 'Cc: ' . $settings['cc_admin'];
+            }
+        }
+
         $ok = wp_mail( $recipients, $subject, $body, $headers );
 
         return array(
@@ -47,6 +55,7 @@ class FMF_Mailer {
         $defaults = array(
             'from_name'  => get_option( 'blogname' ),
             'from_email' => get_option( 'admin_email' ),
+            'cc_admin'   => 'tim@theprofitableflorist.com',
         );
         $stored = get_option( 'fmf_settings', array() );
         return wp_parse_args( is_array( $stored ) ? $stored : array(), $defaults );
