@@ -8,11 +8,11 @@ class FMF_Cron {
     public static function register() {
         add_filter( 'cron_schedules', array( __CLASS__, 'add_weekly_schedule' ) );
         add_action( FMF_CRON_HOOK, array( __CLASS__, 'run' ) );
-        // One-time migration to pin the weekly send to 06:00 local.
-        add_action( 'plugins_loaded', array( __CLASS__, 'maybe_apply_schedule_migration' ), 20 );
         // Self-heal: if cron got dropped (or activation race left it unscheduled),
         // re-schedule on the next admin request.
         add_action( 'admin_init', array( __CLASS__, 'schedule' ) );
+        // One-time migration to pin the weekly send to 06:00 local.
+        add_action( 'plugins_loaded', array( __CLASS__, 'maybe_apply_schedule_migration' ), 20 );
     }
 
     /**
@@ -63,7 +63,14 @@ class FMF_Cron {
     }
 
     /**
-     * Returns the next Monday at the configured local hour, expressed as a UTC timestamp.
+     * Returns the upcoming Monday at the configured local hour, as a UTC timestamp.
+     *
+     * The "upcoming" Monday is THIS week's Monday if it is still in the future
+     * (e.g. it's Monday and the send hour hasn't passed yet); otherwise next
+     * Monday. PHP's 'next monday' always rolls to the following week, so using it
+     * here would skip the current Monday whenever the cron is (re)scheduled on the
+     * Monday itself before the send hour - turning a single missed fire into a
+     * whole skipped week.
      */
     public static function next_monday_morning_gmt() {
         $settings = get_option( 'fmf_settings', array() );
@@ -76,7 +83,12 @@ class FMF_Cron {
         }
         $now_local = new DateTime( 'now', $tz );
         $next = clone $now_local;
-        $next->modify( 'next monday' )->setTime( $hour, 0, 0 );
+        // Monday of the current ISO week at the send hour.
+        $next->modify( 'monday this week' )->setTime( $hour, 0, 0 );
+        // If that moment has already passed, roll forward to next Monday.
+        if ( $next->getTimestamp() <= $now_local->getTimestamp() ) {
+            $next->modify( '+7 days' );
+        }
         $next->setTimezone( new DateTimeZone( 'UTC' ) );
         return $next->getTimestamp();
     }
