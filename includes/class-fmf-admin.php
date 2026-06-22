@@ -97,6 +97,8 @@ class FMF_Admin {
             'test_recipient' => sanitize_email( $_POST['test_recipient'] ?? 'ziv@kivimedia.co' ),
             'from_name'      => sanitize_text_field( $_POST['from_name'] ?? get_option( 'blogname' ) ),
             'from_email'     => sanitize_email( $_POST['from_email'] ?? get_option( 'admin_email' ) ),
+            'cc_admin'       => sanitize_email( $_POST['cc_admin'] ?? '' ),
+            'cc_office'      => sanitize_email( $_POST['cc_office'] ?? '' ),
         ), $existing );
         update_option( 'fmf_settings', $new, false );
 

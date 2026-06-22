@@ -65,6 +65,11 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
           <tr><th>Test recipient</th><td><input name="test_recipient" type="email" value="<?php echo esc_attr( $settings['test_recipient'] ?? 'ziv@kivimedia.co' ); ?>" size="40"></td></tr>
           <tr><th>From name</th><td><input name="from_name" type="text" value="<?php echo esc_attr( $settings['from_name'] ?? get_option( 'blogname' ) ); ?>"></td></tr>
           <tr><th>From email</th><td><input name="from_email" type="email" value="<?php echo esc_attr( $settings['from_email'] ?? get_option( 'admin_email' ) ); ?>" size="40"></td></tr>
+          <tr><th>CC on every report</th><td>
+            <input name="cc_admin" type="email" value="<?php echo esc_attr( $settings['cc_admin'] ?? 'tim@theprofitableflorist.com' ); ?>" size="40"><br>
+            <input name="cc_office" type="email" value="<?php echo esc_attr( $settings['cc_office'] ?? 'office@theprofitableflorist.com' ); ?>" size="40" style="margin-top:4px;">
+            <p class="description">These addresses are copied on every weekly report. Leave a box empty to remove that CC. (Test sends are never CC'd.)</p>
+          </td></tr>
         </table>
         <button class="button button-primary" type="submit">Save settings</button>
       </form>
