@@ -34,6 +34,13 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
         <tr><th>Groups</th><td><?php echo count( $groups ); ?></td></tr>
         <tr><th>Send enabled</th><td><?php echo ! empty( $settings['enable_send'] ) ? 'yes' : 'no'; ?></td></tr>
         <tr><th>Next cron (UTC)</th><td><?php echo $next_ts ? gmdate( 'Y-m-d H:i', $next_ts ) : '(not scheduled)'; ?></td></tr>
+        <tr><th>Last report sent</th><td>
+          <?php if ( ! empty( $last_send ) ) : ?>
+            <strong style="color:#2a7;"><?php echo esc_html( $last_send['at_gmt'] ); ?> UTC</strong> - <?php echo intval( $last_send['sent'] ); ?> report<?php echo intval( $last_send['sent'] ) === 1 ? '' : 's'; ?> delivered (week of <?php echo esc_html( $last_send['week_key'] ); ?>)
+          <?php else : ?>
+            <em>(tracked from the next delivering run onward)</em>
+          <?php endif; ?>
+        </td></tr>
         <tr><th>Last run</th><td>
           <?php if ( $last_run ) : ?>
             <?php echo esc_html( $last_run['at_gmt'] ); ?> UTC - sent <?php echo intval( $last_run['sent'] ); ?>, skipped <?php echo intval( $last_run['skipped'] ); ?>, errors <?php echo count( $last_run['errors'] ); ?>
@@ -42,6 +49,7 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
           <?php endif; ?>
         </td></tr>
       </table>
+      <p class="description" style="margin-top:8px;">"Last report sent" is the most recent run that actually delivered email. "Last run" is the most recent time the sender executed at all - because a backup cron runs a few minutes after the main one, "Last run" often shows <code>sent 0, skipped N</code>. That is normal: it just means the reports already went out that week and the duplicate-guard skipped them. Use "Force-resend" below only if you want to re-send a week on purpose.</p>
 
       <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin-top:14px;">
         <?php wp_nonce_field( 'fmf_run_now' ); ?>

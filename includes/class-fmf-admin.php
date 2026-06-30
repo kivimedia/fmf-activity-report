@@ -47,6 +47,7 @@ class FMF_Admin {
         $overrides = get_option( 'fmf_group_overrides', array() );
         $sent_log  = get_option( 'fmf_sent_log', array() );
         $last_run  = get_option( 'fmf_last_run', null );
+        $last_send = get_option( 'fmf_last_successful_send', null );
         $next_ts   = wp_next_scheduled( FMF_CRON_HOOK );
 
         $groups = FMF_LifterLMS_Reader::list_groups_for_course( $course_id );

@@ -156,6 +156,22 @@ class FMF_Cron {
             'week_key'  => $week_key,
         ), false );
 
+        // Preserve the last run that ACTUALLY delivered email. Two schedulers
+        // drive this plugin (WordPress WP-Cron at the send hour + the VPS backup
+        // cron ~15 min later); whichever fires second sees every group already in
+        // the weekly idempotency log and returns sent=0/skipped=N. That dedup run
+        // overwrites fmf_last_run, making the admin panel read "sent 0, skipped N"
+        // even though the report went out. Recording the last delivering run
+        // separately keeps the real send visible. Only update when something sent.
+        if ( $sent > 0 ) {
+            update_option( 'fmf_last_successful_send', array(
+                'at_gmt'    => gmdate( 'Y-m-d H:i:s' ),
+                'sent'      => $sent,
+                'skipped'   => $skipped,
+                'week_key'  => $week_key,
+            ), false );
+        }
+
         return array( 'sent' => $sent, 'skipped' => $skipped, 'errors' => $errors );
     }
 }

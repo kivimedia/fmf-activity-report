@@ -287,6 +287,7 @@ class FMF_REST {
             'sample_groups'     => $sample,
             'next_cron_gmt'     => wp_next_scheduled( FMF_CRON_HOOK ) ? gmdate( 'Y-m-d H:i:s', wp_next_scheduled( FMF_CRON_HOOK ) ) : null,
             'last_run'          => get_option( 'fmf_last_run', null ),
+            'last_successful_send' => get_option( 'fmf_last_successful_send', null ),
             'enable_send'       => ! empty( $settings['enable_send'] ),
             'plugin_version'    => FMF_VERSION,
         );
