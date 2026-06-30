@@ -80,7 +80,70 @@ class FMF_Admin {
             );
         }
 
+        // Weekly send history - the simple "did the email go out?" view.
+        $send_history = self::build_send_history( $sent_log );
+        list( $cur_week_start_gmt, ) = FMF_Report_Builder::previous_week_bounds_gmt();
+        $current_week_key   = FMF_Report_Builder::week_key_for( $cur_week_start_gmt );
+        $current_week_sent  = 0;
+        $current_week_label = '';
+        foreach ( $send_history as $h ) {
+            if ( $h['week_key'] === $current_week_key ) {
+                $current_week_sent  = $h['count'];
+                $current_week_label = $h['label'];
+                break;
+            }
+        }
+        if ( '' === $current_week_label ) {
+            $current_week_label = self::week_label( $current_week_key );
+        }
+
         include FMF_PLUGIN_DIR . 'templates/admin-page.php';
+    }
+
+    /**
+     * Turn a week_key (the Monday "Y-m-d" of the reported week) into a friendly
+     * "Jun 22 - 28, 2026" label spanning that Monday through the following Sunday.
+     */
+    private static function week_label( $week_key ) {
+        $start = date_create_from_format( 'Y-m-d', (string) $week_key, new DateTimeZone( 'UTC' ) );
+        if ( ! $start ) {
+            return (string) $week_key;
+        }
+        $end = clone $start;
+        $end->modify( '+6 days' );
+        $end_fmt = ( $start->format( 'M' ) === $end->format( 'M' ) ) ? 'j' : 'M j';
+        return $start->format( 'M j' ) . ' - ' . $end->format( $end_fmt ) . ', ' . $end->format( 'Y' );
+    }
+
+    /**
+     * Build the weekly send history from fmf_sent_log: one entry per reported
+     * week (newest first), with how many shop reports were delivered and when
+     * the send ran (in the site's local time).
+     */
+    private static function build_send_history( $sent_log ) {
+        $weeks = array();
+        foreach ( (array) $sent_log as $gid => $wk_map ) {
+            foreach ( (array) $wk_map as $wk => $ts ) {
+                $ts = intval( $ts );
+                if ( ! isset( $weeks[ $wk ] ) ) {
+                    $weeks[ $wk ] = array( 'count' => 0, 'first' => $ts, 'last' => $ts );
+                }
+                $weeks[ $wk ]['count']++;
+                $weeks[ $wk ]['first'] = min( $weeks[ $wk ]['first'], $ts );
+                $weeks[ $wk ]['last']  = max( $weeks[ $wk ]['last'], $ts );
+            }
+        }
+        krsort( $weeks ); // newest week first
+        $out = array();
+        foreach ( $weeks as $wk => $d ) {
+            $out[] = array(
+                'week_key' => $wk,
+                'label'    => self::week_label( $wk ),
+                'count'    => $d['count'],
+                'sent_on'  => wp_date( 'D, M j Y, g:i A', $d['first'] ),
+            );
+        }
+        return $out;
     }
 
     public static function handle_save_settings() {

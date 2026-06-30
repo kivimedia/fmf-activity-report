@@ -84,6 +84,44 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
     </section>
   </div>
 
+  <section class="fmf-panel" style="margin-top:24px;">
+    <h2 style="margin-bottom:4px;">Did the weekly email go out?</h2>
+    <?php if ( $current_week_sent > 0 ) : ?>
+      <div style="background:#eafaf0;border:1px solid #9fdcb8;border-radius:8px;padding:16px 18px;margin:10px 0 16px;display:flex;align-items:center;gap:12px;">
+        <span style="font-size:30px;line-height:1;">&#9989;</span>
+        <div>
+          <div style="font-size:16px;font-weight:700;color:#1f7a45;">Yes &mdash; this week's report went out.</div>
+          <div style="color:#2a2740;margin-top:2px;"><strong><?php echo intval( $current_week_sent ); ?></strong> shop reports delivered for the week of <strong><?php echo esc_html( $current_week_label ); ?></strong>.</div>
+        </div>
+      </div>
+    <?php else : ?>
+      <div style="background:#fff7e6;border:1px solid #f0d59a;border-radius:8px;padding:16px 18px;margin:10px 0 16px;display:flex;align-items:center;gap:12px;">
+        <span style="font-size:30px;line-height:1;">&#9203;</span>
+        <div>
+          <div style="font-size:16px;font-weight:700;color:#9a6b00;">Not yet &mdash; this week's report (week of <?php echo esc_html( $current_week_label ); ?>) has not been sent.</div>
+          <div style="color:#2a2740;margin-top:2px;">Next scheduled send: <strong><?php echo $next_ts ? esc_html( wp_date( 'D, M j Y, g:i A', $next_ts ) ) : '(not scheduled)'; ?></strong>. If a Monday has passed with no send, tell Ziv.</div>
+        </div>
+      </div>
+    <?php endif; ?>
+
+    <p class="description" style="margin-bottom:8px;">One row per week. A green check means that week's report was emailed to the shop teams. "Reports delivered" is how many teams got their email that week. A backup run a few minutes later showing "skipped" is normal &mdash; it just means the emails already went out.</p>
+    <table class="widefat striped">
+      <thead><tr><th>Week reported</th><th>Sent on (your time)</th><th>Reports delivered</th><th>Status</th></tr></thead>
+      <tbody>
+        <?php if ( empty( $send_history ) ) : ?>
+          <tr><td colspan="4"><em>No weekly sends recorded yet.</em></td></tr>
+        <?php else : foreach ( $send_history as $h ) : ?>
+          <tr>
+            <td><strong>Week of <?php echo esc_html( $h['label'] ); ?></strong></td>
+            <td><?php echo esc_html( $h['sent_on'] ); ?></td>
+            <td style="font-weight:600;"><?php echo intval( $h['count'] ); ?></td>
+            <td><span style="color:#1f7a45;font-weight:700;">&#9989; Sent</span></td>
+          </tr>
+        <?php endforeach; endif; ?>
+      </tbody>
+    </table>
+  </section>
+
   <?php if ( ! empty( $_GET['recipients_saved'] ) ) : ?>
     <div class="notice notice-success is-dismissible"><p>Recipient mappings saved.</p></div>
   <?php endif; ?>
