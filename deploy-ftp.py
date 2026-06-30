@@ -11,7 +11,12 @@ from pathlib import Path
 
 REPO_ROOT  = Path(__file__).resolve().parent
 ENV_FILE   = REPO_ROOT / '.fmf-deploy.env'
-PLUGIN_SLUG = 'fmf-activity-report'
+# The ACTIVE plugin on theprofitableflorist.com lives in `fmf-activity-report-main`
+# (installed from a GitHub ZIP/clone - note the `-main` suffix), NOT plain
+# `fmf-activity-report` (that dir exists too but is INACTIVE). Deploying to the
+# wrong dir silently no-ops the live site. Verify after every deploy via
+# /wp-json/wp/v2/plugins (which dir is `active`) + /wp-json/fmf/v1/diagnose version.
+PLUGIN_SLUG = 'fmf-activity-report-main'
 
 INCLUDE_DIRS = {'includes', 'templates', 'templates/emails', 'assets', 'assets/css'}
 SKIP_TOPLEVEL = {'docs', 'plans', '.git', '.github', '.idea', '.vscode'}
