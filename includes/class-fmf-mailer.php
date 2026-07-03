@@ -54,6 +54,68 @@ class FMF_Mailer {
         );
     }
 
+    /**
+     * Render and send the program-wide weekly roll-up (for Tim / office).
+     *
+     * Recipients are the same two addresses CC'd on the per-shop reports
+     * (cc_admin + cc_office). Unlike send_group_report(), these are the primary
+     * To recipients here since the roll-up is addressed to them directly.
+     *
+     * @param array  $rollup       Output of FMF_Report_Builder::build_program_rollup()
+     * @param string $override_to  Optional - if set, send only to this address (test mode).
+     * @return array{sent:bool,recipients:string[],error:string}
+     */
+    public static function send_program_rollup( array $rollup, $override_to = '' ) {
+        $settings = self::settings();
+
+        if ( $override_to ) {
+            $recipients = array( $override_to );
+        } else {
+            $recipients = array();
+            foreach ( array( $settings['cc_admin'], $settings['cc_office'] ) as $addr ) {
+                if ( ! empty( $addr ) && is_email( $addr ) ) {
+                    $recipients[] = $addr;
+                }
+            }
+            $recipients = array_values( array_unique( $recipients ) );
+        }
+
+        if ( empty( $recipients ) ) {
+            return array( 'sent' => false, 'recipients' => array(), 'error' => 'No roll-up recipient configured (set CC admin/office in settings)' );
+        }
+
+        $subject = sprintf( 'The 15 Minute Florist - program activity, week of %s', $rollup['week_start_label'] );
+        $body    = self::render_rollup_html( $rollup, $override_to );
+        $headers = self::headers( $settings );
+
+        $ok = wp_mail( $recipients, $subject, $body, $headers );
+
+        return array(
+            'sent'       => (bool) $ok,
+            'recipients' => $recipients,
+            'error'      => $ok ? '' : 'wp_mail returned false',
+        );
+    }
+
+    public static function render_rollup_html( array $rollup, $override_to = '' ) {
+        $template = FMF_PLUGIN_DIR . 'templates/emails/program-rollup.php';
+        // Variables consumed by the template:
+        $week_start_label = $rollup['week_start_label'];
+        $week_end_label   = $rollup['week_end_label'];
+        $shops            = $rollup['shops'];
+        $shops_active     = $rollup['shops_active'];
+        $shops_total      = $rollup['shops_total'];
+        $people_active    = $rollup['people_active'];
+        $lessons_total    = $rollup['lessons_total'];
+        $shops_silent     = $rollup['shops_silent'];
+        $admin_url        = admin_url( 'admin.php?page=fmf-activity-report' );
+        $is_test          = ! empty( $override_to );
+
+        ob_start();
+        include $template;
+        return ob_get_clean();
+    }
+
     public static function settings() {
         $defaults = array(
             'from_name'  => get_option( 'blogname' ),

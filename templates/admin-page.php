@@ -85,6 +85,21 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
   </div>
 
   <section class="fmf-panel" style="margin-top:24px;">
+    <h2>Program roll-up for Tim</h2>
+    <p class="description">A single weekly digest across <strong>all</strong> shops &mdash; everyone who watched anything last week (owners <em>and</em> staff), grouped by shop, with a count of the shops that had no activity. Sent automatically every Monday alongside the per-shop reports, to the CC admin + office addresses in Settings above. Preview it or send yourself a test copy here.</p>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:10px;">
+      <a class="button" target="_blank" href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=fmf_preview_rollup' ), 'fmf_preview_rollup' ) ); ?>">Preview program roll-up</a>
+      <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline;margin:0;">
+        <?php wp_nonce_field( 'fmf_send_test_rollup' ); ?>
+        <input type="hidden" name="action" value="fmf_send_test_rollup">
+        <input type="hidden" name="recipient" value="<?php echo esc_attr( $settings['test_recipient'] ?? '' ); ?>">
+        <button class="button" type="submit">Send test roll-up to me</button>
+      </form>
+      <span class="description">Test copy goes only to your test recipient &mdash; never CC'd to Tim/office.</span>
+    </div>
+  </section>
+
+  <section class="fmf-panel" style="margin-top:24px;">
     <h2 style="margin-bottom:4px;">Did the weekly email go out?</h2>
     <?php if ( $current_week_sent > 0 ) : ?>
       <div style="background:#eafaf0;border:1px solid #9fdcb8;border-radius:8px;padding:16px 18px;margin:10px 0 16px;display:flex;align-items:center;gap:12px;">

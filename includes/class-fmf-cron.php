@@ -147,6 +147,24 @@ class FMF_Cron {
             }
         }
 
+        // Program-wide roll-up for Tim/office: one digest across all shops,
+        // sent once per week alongside the per-shop reports. Skipped for
+        // single-group tests and override-to test sends, and guarded by its own
+        // weekly idempotency key so the backup cron can't double-send it.
+        if ( ! $only_group && ! $override_to ) {
+            $rollup_log = get_option( 'fmf_rollup_sent_log', array() );
+            if ( $force_send || empty( $rollup_log[ $week_key ] ) ) {
+                $rollup = FMF_Report_Builder::build_program_rollup( $course_id, $week_start_gmt, $week_end_gmt );
+                $res    = FMF_Mailer::send_program_rollup( $rollup );
+                if ( $res['sent'] ) {
+                    $rollup_log[ $week_key ] = time();
+                    update_option( 'fmf_rollup_sent_log', $rollup_log, false );
+                } else {
+                    $errors[] = 'rollup: ' . $res['error'];
+                }
+            }
+        }
+
         update_option( 'fmf_sent_log', $sent_log, false );
         update_option( 'fmf_last_run', array(
             'at_gmt'    => gmdate( 'Y-m-d H:i:s' ),

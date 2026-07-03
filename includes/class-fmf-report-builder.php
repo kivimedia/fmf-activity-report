@@ -92,6 +92,106 @@ class FMF_Report_Builder {
         );
     }
 
+    /**
+     * Program-wide weekly roll-up for Tim: every shop that had ANY activity in
+     * the window, and every watcher within it - owners/leaders AND staff alike
+     * (unlike the per-shop report, which counts students only). Shops with zero
+     * activity are omitted and summarised as a silent count.
+     *
+     * @return array{
+     *   week_start_label:string,
+     *   week_end_label:string,
+     *   shops:array<int,array{title:string,people_total:int,lesson_total:int,
+     *     watchers:array<int,array{display_name:string,is_leader:bool,lesson_count:int,last_at:string}>}>,
+     *   shops_active:int,
+     *   shops_total:int,
+     *   people_active:int,
+     *   lessons_total:int,
+     *   shops_silent:int
+     * }
+     */
+    public static function build_program_rollup( $course_id, $week_start_gmt, $week_end_gmt ) {
+        $groups = FMF_LifterLMS_Reader::list_groups_for_course( $course_id );
+
+        $shops         = array();
+        $unique_people = array();
+        $lessons_total = 0;
+
+        foreach ( $groups as $g ) {
+            $members = FMF_LifterLMS_Reader::group_members( $g['id'] );
+            if ( empty( $members ) ) {
+                continue;
+            }
+
+            $user_ids = array_map( function( $m ) { return $m['user_id']; }, $members );
+            $activity = FMF_LifterLMS_Reader::lesson_completions_for_users( $user_ids, $week_start_gmt, $week_end_gmt, $course_id );
+            if ( empty( $activity ) ) {
+                continue; // silent shop
+            }
+
+            $watchers     = array();
+            $shop_lessons = 0;
+            foreach ( $members as $m ) {
+                $rows = isset( $activity[ $m['user_id'] ] ) ? $activity[ $m['user_id'] ] : array();
+                if ( empty( $rows ) ) {
+                    continue;
+                }
+                $count       = count( $rows );
+                $watchers[]  = array(
+                    'display_name' => $m['display_name'],
+                    'is_leader'    => in_array( $m['role'], FMF_LifterLMS_Reader::LEADER_ROLES, true ),
+                    'lesson_count' => $count,
+                    'last_at'      => self::latest_completion_local( $rows ),
+                );
+                $shop_lessons += $count;
+                $unique_people[ $m['user_id'] ] = true;
+            }
+
+            if ( empty( $watchers ) ) {
+                continue;
+            }
+
+            // Most-active watcher first, then name.
+            usort( $watchers, function( $a, $b ) {
+                if ( $a['lesson_count'] !== $b['lesson_count'] ) {
+                    return $b['lesson_count'] - $a['lesson_count'];
+                }
+                return strcasecmp( $a['display_name'], $b['display_name'] );
+            } );
+
+            $shops[] = array(
+                'title'        => $g['title'],
+                'people_total' => count( $watchers ),
+                'lesson_total' => $shop_lessons,
+                'watchers'     => $watchers,
+            );
+            $lessons_total += $shop_lessons;
+        }
+
+        // Most-active shop first, then title.
+        usort( $shops, function( $a, $b ) {
+            if ( $a['lesson_total'] !== $b['lesson_total'] ) {
+                return $b['lesson_total'] - $a['lesson_total'];
+            }
+            return strcasecmp( $a['title'], $b['title'] );
+        } );
+
+        $tz = self::site_tz();
+        $week_start_dt = ( new DateTime( $week_start_gmt, new DateTimeZone( 'UTC' ) ) )->setTimezone( $tz );
+        $week_end_dt   = ( new DateTime( $week_end_gmt,   new DateTimeZone( 'UTC' ) ) )->setTimezone( $tz );
+
+        return array(
+            'week_start_label' => $week_start_dt->format( 'M j' ),
+            'week_end_label'   => $week_end_dt->format( 'M j, Y' ),
+            'shops'            => $shops,
+            'shops_active'     => count( $shops ),
+            'shops_total'      => count( $groups ),
+            'people_active'    => count( $unique_people ),
+            'lessons_total'    => $lessons_total,
+            'shops_silent'     => max( 0, count( $groups ) - count( $shops ) ),
+        );
+    }
+
     private static function latest_completion_local( array $rows ) {
         $latest = null;
         foreach ( $rows as $r ) {

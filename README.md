@@ -18,6 +18,10 @@ program is paying off.
 - Idempotent: per-(group, week) sent log prevents double-sends.
 - Each email contains a one-click HMAC-signed unsubscribe URL that pauses
   reports for that group only.
+- Also emails Tim + office a program-wide weekly roll-up: everyone across all
+  shops (owners AND staff) who watched anything last week, grouped by shop,
+  most-active first, with a count of the shops that had no activity. Sent once
+  per week alongside the per-shop reports; own idempotency key.
 
 ## Architecture
 
@@ -29,6 +33,7 @@ program is paying off.
 - `includes/class-fmf-admin.php` - settings page + per-group toggles + send-test
 - `includes/class-fmf-rest.php` - REST endpoints (diagnose, run-weekly, unsub)
 - `templates/emails/weekly-report.php` - HTML email template
+- `templates/emails/program-rollup.php` - program-wide roll-up email template (for Tim)
 - `templates/admin-page.php` - admin UI
 
 ## Deploy
