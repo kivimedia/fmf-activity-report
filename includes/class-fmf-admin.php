@@ -17,6 +17,7 @@ class FMF_Admin {
         add_action( 'admin_post_fmf_run_now',       array( __CLASS__, 'handle_run_now' ) );
         add_action( 'admin_post_fmf_preview_rollup', array( __CLASS__, 'handle_preview_rollup' ) );
         add_action( 'admin_post_fmf_send_test_rollup', array( __CLASS__, 'handle_send_test_rollup' ) );
+        add_action( 'admin_post_fmf_send_rollup_now', array( __CLASS__, 'handle_send_rollup_now' ) );
         add_action( 'admin_enqueue_scripts',        array( __CLASS__, 'assets' ) );
     }
 
@@ -388,6 +389,32 @@ class FMF_Admin {
         $result = FMF_Mailer::send_program_rollup( $rollup, $to );
         $status = $result['sent'] ? 'sent' : 'failed';
         wp_safe_redirect( admin_url( 'admin.php?page=fmf-activity-report&test_' . $status . '=' . urlencode( $to ) ) );
+        exit;
+    }
+
+    /**
+     * On-demand REAL send of the program roll-up to Tim + office (the CC admin/office
+     * addresses) - no test banner, and nothing else goes out (unlike "Run now").
+     * Covers the most-recently-completed week, same as the Monday cron.
+     */
+    public static function handle_send_rollup_now() {
+        check_admin_referer( 'fmf_send_rollup_now' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( 'Forbidden' );
+        }
+        $settings  = get_option( 'fmf_settings', array() );
+        $course_id = ! empty( $settings['course_id'] ) ? intval( $settings['course_id'] ) : FMF_DEFAULT_COURSE_ID;
+
+        list( $week_start_gmt, $week_end_gmt ) = FMF_Report_Builder::previous_week_bounds_gmt();
+        $rollup = FMF_Report_Builder::build_program_rollup( $course_id, $week_start_gmt, $week_end_gmt );
+        $result = FMF_Mailer::send_program_rollup( $rollup ); // no override => real recipients
+
+        if ( $result['sent'] ) {
+            $arg = array( 'rollup_sent' => implode( ', ', $result['recipients'] ) );
+        } else {
+            $arg = array( 'rollup_failed' => $result['error'] ? $result['error'] : '1' );
+        }
+        wp_safe_redirect( add_query_arg( $arg, admin_url( 'admin.php?page=fmf-activity-report' ) ) );
         exit;
     }
 

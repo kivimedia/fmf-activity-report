@@ -22,6 +22,12 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
   <?php if ( ! empty( $_GET['run'] ) ) : ?>
     <div class="notice notice-info is-dismissible"><p>Run complete: <code><?php echo esc_html( $_GET['run'] ); ?></code></p></div>
   <?php endif; ?>
+  <?php if ( ! empty( $_GET['rollup_sent'] ) ) : ?>
+    <div class="notice notice-success is-dismissible"><p>Program roll-up sent to <code><?php echo esc_html( $_GET['rollup_sent'] ); ?></code>.</p></div>
+  <?php endif; ?>
+  <?php if ( ! empty( $_GET['rollup_failed'] ) ) : ?>
+    <div class="notice notice-error is-dismissible"><p>Program roll-up send failed: <code><?php echo esc_html( $_GET['rollup_failed'] ); ?></code></p></div>
+  <?php endif; ?>
 
   <div class="fmf-grid">
     <section class="fmf-panel">
@@ -86,8 +92,8 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
 
   <section class="fmf-panel" style="margin-top:24px;">
     <h2>Program roll-up for Tim</h2>
-    <p class="description">A single weekly digest across <strong>all</strong> shops &mdash; everyone who watched anything last week (owners <em>and</em> staff), grouped by shop, with a count of the shops that had no activity. Sent automatically every Monday alongside the per-shop reports, to the CC admin + office addresses in Settings above. Preview it or send yourself a test copy here.</p>
-    <div style="display:flex;gap:8px;align-items:center;margin-top:10px;">
+    <p class="description">A single weekly digest across <strong>all</strong> shops &mdash; everyone who watched anything last week (owners <em>and</em> staff), grouped by shop, the Top 10 most active shops and Top 10 classes watched (this week + all time), with a count of the shops that had no activity. Sent automatically every Monday alongside the per-shop reports, to the CC admin + office addresses in Settings above. Preview it, send yourself a test copy, or send it for real right now.</p>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap;">
       <a class="button" target="_blank" href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=fmf_preview_rollup' ), 'fmf_preview_rollup' ) ); ?>">Preview program roll-up</a>
       <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline;margin:0;">
         <?php wp_nonce_field( 'fmf_send_test_rollup' ); ?>
@@ -95,8 +101,13 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
         <input type="hidden" name="recipient" value="<?php echo esc_attr( $settings['test_recipient'] ?? '' ); ?>">
         <button class="button" type="submit">Send test roll-up to me</button>
       </form>
-      <span class="description">Test copy goes only to your test recipient &mdash; never CC'd to Tim/office.</span>
+      <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline;margin:0;" onsubmit="return confirm('Send the program roll-up NOW to Tim + office? This is a real email covering last completed week (Mon–Sun) — not a test.');">
+        <?php wp_nonce_field( 'fmf_send_rollup_now' ); ?>
+        <input type="hidden" name="action" value="fmf_send_rollup_now">
+        <button class="button button-primary" type="submit">Send roll-up now to Tim + office</button>
+      </form>
     </div>
+    <p class="description" style="margin-top:8px;">The test copy goes only to your test recipient &mdash; never CC'd to Tim/office. <strong>Send roll-up now</strong> delivers the real digest to the CC admin + office addresses immediately (and nothing else goes out).</p>
   </section>
 
   <section class="fmf-panel" style="margin-top:24px;">

@@ -5,6 +5,7 @@
  * Receives:
  *  $week_start_label, $week_end_label,
  *  $shops, $shops_active, $shops_total, $people_active, $lessons_total, $shops_silent,
+ *  $top_shops_week, $top_lessons_week, $top_shops_alltime, $top_lessons_alltime,
  *  $admin_url, $is_test
  */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
@@ -94,6 +95,81 @@ $brand_ink    = '#2a2740';
         <tr>
           <td style="padding:0 32px 8px;">
             <div style="background:#fdf6f6;border:1px solid #f4e4e4;border-radius:8px;padding:16px;font-size:14px;color:#a43a3a;">No one watched anything in any shop last week.</div>
+          </td>
+        </tr>
+        <?php endif; ?>
+
+        <?php
+        /**
+         * Renders a compact ranked leaderboard table (This week / All time pair).
+         * $rows: list of ['label'=>string, 'metric'=>string(pre-escaped HTML)].
+         */
+        $fmf_render_leaderboard = function( $rows, $window_label ) use ( $brand_ink, $brand_purple ) {
+            if ( empty( $rows ) ) {
+                return;
+            }
+            ?>
+            <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:#998;margin:10px 0 6px;"><?php echo esc_html( $window_label ); ?></div>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #eee;border-radius:8px;overflow:hidden;margin-bottom:12px;">
+              <?php $rank = 0; $last = count( $rows ) - 1; foreach ( $rows as $i => $r ) : $rank++; $border = $i === $last ? '' : 'border-bottom:1px solid #f4f2f7;'; ?>
+              <tr>
+                <td width="28" style="padding:8px 4px 8px 14px;font-size:13px;font-weight:700;color:<?php echo esc_attr( $brand_purple ); ?>;<?php echo $border; ?>"><?php echo intval( $rank ); ?></td>
+                <td style="padding:8px 8px;font-size:13px;color:<?php echo esc_attr( $brand_ink ); ?>;<?php echo $border; ?>"><?php echo esc_html( $r['label'] ); ?></td>
+                <td align="right" style="padding:8px 14px 8px 8px;font-size:12px;color:#766;white-space:nowrap;<?php echo $border; ?>"><?php echo $r['metric']; // pre-escaped ?></td>
+              </tr>
+              <?php endforeach; ?>
+            </table>
+            <?php
+        };
+
+        // Shape shop rows: "N lessons . M people".
+        $fmf_shop_rows = function( $shops_list ) {
+            $out = array();
+            foreach ( $shops_list as $s ) {
+                $lessons = intval( $s['lesson_total'] );
+                $people  = intval( $s['people_total'] );
+                $metric  = esc_html( $lessons . ' lesson' . ( 1 === $lessons ? '' : 's' ) )
+                    . ' <span style="color:#bbb;">&middot;</span> '
+                    . esc_html( $people . ' ' . ( 1 === $people ? 'person' : 'people' ) );
+                $out[] = array( 'label' => $s['title'], 'metric' => $metric );
+            }
+            return $out;
+        };
+
+        // Shape lesson rows: "N watches".
+        $fmf_lesson_rows = function( $lessons_list ) {
+            $out = array();
+            foreach ( $lessons_list as $l ) {
+                $c = intval( $l['count'] );
+                $out[] = array(
+                    'label'  => $l['title'],
+                    'metric' => esc_html( $c . ' watch' . ( 1 === $c ? '' : 'es' ) ),
+                );
+            }
+            return $out;
+        };
+        ?>
+
+        <?php if ( ! empty( $top_shops_week ) || ! empty( $top_shops_alltime ) ) : ?>
+        <tr>
+          <td style="padding:8px 32px 0;">
+            <h3 style="margin:14px 0 4px;font-size:16px;color:<?php echo esc_attr( $brand_purple ); ?>;">Top 10 most active shops</h3>
+            <?php
+            $fmf_render_leaderboard( $fmf_shop_rows( $top_shops_week ), 'This week' );
+            $fmf_render_leaderboard( $fmf_shop_rows( $top_shops_alltime ), 'All time' );
+            ?>
+          </td>
+        </tr>
+        <?php endif; ?>
+
+        <?php if ( ! empty( $top_lessons_week ) || ! empty( $top_lessons_alltime ) ) : ?>
+        <tr>
+          <td style="padding:8px 32px 0;">
+            <h3 style="margin:14px 0 4px;font-size:16px;color:<?php echo esc_attr( $brand_purple ); ?>;">Top 10 classes watched</h3>
+            <?php
+            $fmf_render_leaderboard( $fmf_lesson_rows( $top_lessons_week ), 'This week' );
+            $fmf_render_leaderboard( $fmf_lesson_rows( $top_lessons_alltime ), 'All time' );
+            ?>
           </td>
         </tr>
         <?php endif; ?>

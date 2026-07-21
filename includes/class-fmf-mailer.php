@@ -108,6 +108,10 @@ class FMF_Mailer {
         $people_active    = $rollup['people_active'];
         $lessons_total    = $rollup['lessons_total'];
         $shops_silent     = $rollup['shops_silent'];
+        $top_shops_week      = isset( $rollup['top_shops_week'] )      ? $rollup['top_shops_week']      : array();
+        $top_lessons_week    = isset( $rollup['top_lessons_week'] )    ? $rollup['top_lessons_week']    : array();
+        $top_shops_alltime   = isset( $rollup['top_shops_alltime'] )   ? $rollup['top_shops_alltime']   : array();
+        $top_lessons_alltime = isset( $rollup['top_lessons_alltime'] ) ? $rollup['top_lessons_alltime'] : array();
         $admin_url        = admin_url( 'admin.php?page=fmf-activity-report' );
         $is_test          = ! empty( $override_to );
 

@@ -107,7 +107,11 @@ class FMF_Report_Builder {
      *   shops_total:int,
      *   people_active:int,
      *   lessons_total:int,
-     *   shops_silent:int
+     *   shops_silent:int,
+     *   top_shops_week:array<int,array{title:string,lesson_total:int,people_total:int}>,
+     *   top_lessons_week:array<int,array{title:string,count:int}>,
+     *   top_shops_alltime:array<int,array{title:string,lesson_total:int,people_total:int}>,
+     *   top_lessons_alltime:array<int,array{title:string,count:int}>
      * }
      */
     public static function build_program_rollup( $course_id, $week_start_gmt, $week_end_gmt ) {
@@ -116,6 +120,7 @@ class FMF_Report_Builder {
         $shops         = array();
         $unique_people = array();
         $lessons_total = 0;
+        $lesson_tally  = array(); // lesson_id => ['title'=>string,'count'=>int] for the week.
 
         foreach ( $groups as $g ) {
             $members = FMF_LifterLMS_Reader::group_members( $g['id'] );
@@ -135,6 +140,14 @@ class FMF_Report_Builder {
                 $rows = isset( $activity[ $m['user_id'] ] ) ? $activity[ $m['user_id'] ] : array();
                 if ( empty( $rows ) ) {
                     continue;
+                }
+                // Tally each watched lesson for the program-wide "top classes this week" list.
+                foreach ( $rows as $row ) {
+                    $lid = intval( $row['lesson_id'] );
+                    if ( ! isset( $lesson_tally[ $lid ] ) ) {
+                        $lesson_tally[ $lid ] = array( 'title' => $row['lesson_title'], 'count' => 0 );
+                    }
+                    $lesson_tally[ $lid ]['count']++;
                 }
                 $count       = count( $rows );
                 $watchers[]  = array(
@@ -176,20 +189,148 @@ class FMF_Report_Builder {
             return strcasecmp( $a['title'], $b['title'] );
         } );
 
+        // Weekly "top classes" leaderboard, most-watched first, then title.
+        $top_lessons_week = array_values( $lesson_tally );
+        usort( $top_lessons_week, function( $a, $b ) {
+            if ( $a['count'] !== $b['count'] ) {
+                return $b['count'] - $a['count'];
+            }
+            return strcasecmp( $a['title'], $b['title'] );
+        } );
+
+        // Weekly "top shops" is the already-sorted shop list, trimmed to the fields the
+        // leaderboard shows (title + both metrics).
+        $top_shops_week = array_map( function( $s ) {
+            return array(
+                'title'        => $s['title'],
+                'lesson_total' => $s['lesson_total'],
+                'people_total' => $s['people_total'],
+            );
+        }, $shops );
+
+        $alltime = self::build_program_alltime( $course_id, $groups );
+
         $tz = self::site_tz();
         $week_start_dt = ( new DateTime( $week_start_gmt, new DateTimeZone( 'UTC' ) ) )->setTimezone( $tz );
         $week_end_dt   = ( new DateTime( $week_end_gmt,   new DateTimeZone( 'UTC' ) ) )->setTimezone( $tz );
 
         return array(
-            'week_start_label' => $week_start_dt->format( 'M j' ),
-            'week_end_label'   => $week_end_dt->format( 'M j, Y' ),
-            'shops'            => $shops,
-            'shops_active'     => count( $shops ),
-            'shops_total'      => count( $groups ),
-            'people_active'    => count( $unique_people ),
-            'lessons_total'    => $lessons_total,
-            'shops_silent'     => max( 0, count( $groups ) - count( $shops ) ),
+            'week_start_label'    => $week_start_dt->format( 'M j' ),
+            'week_end_label'      => $week_end_dt->format( 'M j, Y' ),
+            'shops'               => $shops,
+            'shops_active'        => count( $shops ),
+            'shops_total'         => count( $groups ),
+            'people_active'       => count( $unique_people ),
+            'lessons_total'       => $lessons_total,
+            'shops_silent'        => max( 0, count( $groups ) - count( $shops ) ),
+            'top_shops_week'      => array_slice( $top_shops_week, 0, 10 ),
+            'top_lessons_week'    => array_slice( $top_lessons_week, 0, 10 ),
+            'top_shops_alltime'   => $alltime['top_shops'],
+            'top_lessons_alltime' => $alltime['top_lessons'],
         );
+    }
+
+    /**
+     * Cumulative (all-time) program leaderboards: most-active shops and most-watched
+     * classes across the whole history of the course, for the program roll-up email.
+     *
+     * One completions query for every member of every shop, then bucketed per shop
+     * (via a user -> shops map) and per lesson.
+     *
+     * @param int        $course_id
+     * @param array|null $groups Pre-fetched groups (reused from the caller); fetched if null.
+     * @return array{
+     *   top_shops:array<int,array{title:string,lesson_total:int,people_total:int}>,
+     *   top_lessons:array<int,array{title:string,count:int}>
+     * }
+     */
+    public static function build_program_alltime( $course_id, $groups = null ) {
+        if ( null === $groups ) {
+            $groups = FMF_LifterLMS_Reader::list_groups_for_course( $course_id );
+        }
+
+        // Map every member to the shop(s) they belong to, and collect all user ids.
+        $user_shops = array();          // user_id => [shop titles]
+        $shop_titles = array();         // title => true (to seed shop tallies)
+        $all_user_ids = array();
+        foreach ( $groups as $g ) {
+            $members = FMF_LifterLMS_Reader::group_members( $g['id'] );
+            if ( empty( $members ) ) {
+                continue;
+            }
+            $shop_titles[ $g['title'] ] = true;
+            foreach ( $members as $m ) {
+                $uid = intval( $m['user_id'] );
+                $all_user_ids[ $uid ] = true;
+                if ( ! isset( $user_shops[ $uid ] ) ) {
+                    $user_shops[ $uid ] = array();
+                }
+                $user_shops[ $uid ][] = $g['title'];
+            }
+        }
+
+        $result = array( 'top_shops' => array(), 'top_lessons' => array() );
+        if ( empty( $all_user_ids ) ) {
+            return $result;
+        }
+
+        // Wide window = all time. The reader already scopes to this course's lessons.
+        $now_gmt  = gmdate( 'Y-m-d H:i:s' );
+        $activity = FMF_LifterLMS_Reader::lesson_completions_for_users(
+            array_keys( $all_user_ids ),
+            '1970-01-01 00:00:00',
+            $now_gmt,
+            $course_id
+        );
+
+        $shop_tally   = array(); // title => ['lessons'=>int,'people'=>[uid=>true]]
+        $lesson_tally = array(); // lesson_id => ['title'=>string,'count'=>int]
+
+        foreach ( $activity as $uid => $rows ) {
+            $shops_for_user = isset( $user_shops[ $uid ] ) ? $user_shops[ $uid ] : array();
+            foreach ( $rows as $row ) {
+                $lid = intval( $row['lesson_id'] );
+                if ( ! isset( $lesson_tally[ $lid ] ) ) {
+                    $lesson_tally[ $lid ] = array( 'title' => $row['lesson_title'], 'count' => 0 );
+                }
+                $lesson_tally[ $lid ]['count']++;
+
+                foreach ( $shops_for_user as $title ) {
+                    if ( ! isset( $shop_tally[ $title ] ) ) {
+                        $shop_tally[ $title ] = array( 'lessons' => 0, 'people' => array() );
+                    }
+                    $shop_tally[ $title ]['lessons']++;
+                    $shop_tally[ $title ]['people'][ $uid ] = true;
+                }
+            }
+        }
+
+        $top_shops = array();
+        foreach ( $shop_tally as $title => $t ) {
+            $top_shops[] = array(
+                'title'        => $title,
+                'lesson_total' => $t['lessons'],
+                'people_total' => count( $t['people'] ),
+            );
+        }
+        usort( $top_shops, function( $a, $b ) {
+            if ( $a['lesson_total'] !== $b['lesson_total'] ) {
+                return $b['lesson_total'] - $a['lesson_total'];
+            }
+            return strcasecmp( $a['title'], $b['title'] );
+        } );
+
+        $top_lessons = array_values( $lesson_tally );
+        usort( $top_lessons, function( $a, $b ) {
+            if ( $a['count'] !== $b['count'] ) {
+                return $b['count'] - $a['count'];
+            }
+            return strcasecmp( $a['title'], $b['title'] );
+        } );
+
+        $result['top_shops']   = array_slice( $top_shops, 0, 10 );
+        $result['top_lessons'] = array_slice( $top_lessons, 0, 10 );
+        return $result;
     }
 
     private static function latest_completion_local( array $rows ) {
