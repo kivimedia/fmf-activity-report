@@ -98,6 +98,11 @@ class FMF_Report_Builder {
      * (unlike the per-shop report, which counts students only). Shops with zero
      * activity are omitted and summarised as a silent count.
      *
+     * The four top_* leaderboards are returned COMPLETE and sorted - every shop and
+     * every class, not a top-10. Display limits belong to the caller: the roll-up
+     * email trims to FMF_Mailer::ROLLUP_LEADERBOARD_LIMIT, while the Leaderboards
+     * admin page and its tokenised public view render the full lists.
+     *
      * @return array{
      *   week_start_label:string,
      *   week_end_label:string,
@@ -223,8 +228,8 @@ class FMF_Report_Builder {
             'people_active'       => count( $unique_people ),
             'lessons_total'       => $lessons_total,
             'shops_silent'        => max( 0, count( $groups ) - count( $shops ) ),
-            'top_shops_week'      => array_slice( $top_shops_week, 0, 10 ),
-            'top_lessons_week'    => array_slice( $top_lessons_week, 0, 10 ),
+            'top_shops_week'      => $top_shops_week,
+            'top_lessons_week'    => $top_lessons_week,
             'top_shops_alltime'   => $alltime['top_shops'],
             'top_lessons_alltime' => $alltime['top_lessons'],
         );
@@ -232,7 +237,8 @@ class FMF_Report_Builder {
 
     /**
      * Cumulative (all-time) program leaderboards: most-active shops and most-watched
-     * classes across the whole history of the course, for the program roll-up email.
+     * classes across the whole history of the course. Returned complete and sorted;
+     * callers trim to their own display limit (see FMF_Mailer::ROLLUP_LEADERBOARD_LIMIT).
      *
      * One completions query for every member of every shop, then bucketed per shop
      * (via a user -> shops map) and per lesson.
@@ -328,8 +334,8 @@ class FMF_Report_Builder {
             return strcasecmp( $a['title'], $b['title'] );
         } );
 
-        $result['top_shops']   = array_slice( $top_shops, 0, 10 );
-        $result['top_lessons'] = array_slice( $top_lessons, 0, 10 );
+        $result['top_shops']   = $top_shops;
+        $result['top_lessons'] = $top_lessons;
         return $result;
     }
 

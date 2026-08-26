@@ -3,7 +3,7 @@
  * Plugin Name: 15 Minute Florist - Weekly Activity Report
  * Plugin URI:  https://github.com/kivimedia/fmf-activity-report
  * Description: Weekly Monday-morning email to LifterLMS group leaders showing which staff watched which workshop in The 15 Minute Florist last week.
- * Version:     1.3.0
+ * Version:     1.4.0
  * Author:      Kivi Media
  * Author URI:  https://kivimedia.co
  * License:     GPL-2.0+
@@ -16,7 +16,7 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-define( 'FMF_VERSION',     '1.3.0' );
+define( 'FMF_VERSION',     '1.4.0' );
 define( 'FMF_PLUGIN_FILE', __FILE__ );
 define( 'FMF_PLUGIN_DIR',  plugin_dir_path( __FILE__ ) );
 define( 'FMF_PLUGIN_URL',  plugin_dir_url( __FILE__ ) );
@@ -45,3 +45,6 @@ add_action( 'rest_api_init',  array( 'FMF_REST', 'register_routes' ) );
 
 // One-click unsubscribe handler (works without authentication; uses HMAC).
 add_action( 'init', array( 'FMF_REST', 'maybe_handle_unsubscribe_query' ) );
+
+// Public full-leaderboard page linked from the roll-up email (HMAC, no login).
+add_action( 'init', array( 'FMF_REST', 'maybe_handle_leaderboard_query' ) );

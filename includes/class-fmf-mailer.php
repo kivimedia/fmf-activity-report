@@ -6,6 +6,13 @@ if ( ! defined( 'ABSPATH' ) ) {
 class FMF_Mailer {
 
     /**
+     * How many rows of each leaderboard the roll-up EMAIL shows. The builder now
+     * returns the complete sorted lists; this is purely a display limit so the
+     * email stays readable. The Leaderboards page shows everything.
+     */
+    const ROLLUP_LEADERBOARD_LIMIT = 10;
+
+    /**
      * Render and send the weekly report for one group to its leader(s).
      *
      * @param array  $report   Output of FMF_Report_Builder::build_for_group()
@@ -108,11 +115,31 @@ class FMF_Mailer {
         $people_active    = $rollup['people_active'];
         $lessons_total    = $rollup['lessons_total'];
         $shops_silent     = $rollup['shops_silent'];
-        $top_shops_week      = isset( $rollup['top_shops_week'] )      ? $rollup['top_shops_week']      : array();
-        $top_lessons_week    = isset( $rollup['top_lessons_week'] )    ? $rollup['top_lessons_week']    : array();
-        $top_shops_alltime   = isset( $rollup['top_shops_alltime'] )   ? $rollup['top_shops_alltime']   : array();
-        $top_lessons_alltime = isset( $rollup['top_lessons_alltime'] ) ? $rollup['top_lessons_alltime'] : array();
+
+        // The builder hands back the COMPLETE leaderboards; the email shows only the
+        // first ROLLUP_LEADERBOARD_LIMIT rows and links out to the rest. Keep the
+        // full counts so the "see all N" link can name real totals.
+        $full_shops_week      = isset( $rollup['top_shops_week'] )      ? $rollup['top_shops_week']      : array();
+        $full_lessons_week    = isset( $rollup['top_lessons_week'] )    ? $rollup['top_lessons_week']    : array();
+        $full_shops_alltime   = isset( $rollup['top_shops_alltime'] )   ? $rollup['top_shops_alltime']   : array();
+        $full_lessons_alltime = isset( $rollup['top_lessons_alltime'] ) ? $rollup['top_lessons_alltime'] : array();
+
+        $limit = self::ROLLUP_LEADERBOARD_LIMIT;
+        $top_shops_week      = array_slice( $full_shops_week,      0, $limit );
+        $top_lessons_week    = array_slice( $full_lessons_week,    0, $limit );
+        $top_shops_alltime   = array_slice( $full_shops_alltime,   0, $limit );
+        $top_lessons_alltime = array_slice( $full_lessons_alltime, 0, $limit );
+
+        $leaderboard_limit      = $limit;
+        $leaderboard_shops_all  = count( $full_shops_alltime );
+        $leaderboard_class_all  = count( $full_lessons_alltime );
+        $leaderboard_truncated  = ( $leaderboard_shops_all > $limit )
+            || ( $leaderboard_class_all > $limit )
+            || ( count( $full_shops_week ) > $limit )
+            || ( count( $full_lessons_week ) > $limit );
+
         $admin_url        = admin_url( 'admin.php?page=fmf-activity-report' );
+        $leaderboards_url = self::leaderboards_url();
         $is_test          = ! empty( $override_to );
 
         ob_start();
@@ -183,6 +210,31 @@ class FMF_Mailer {
 
     public static function unsubscribe_key( $group_id ) {
         return substr( hash_hmac( 'sha256', 'fmf_unsub_' . intval( $group_id ), wp_salt( 'auth' ) ), 0, 16 );
+    }
+
+    /**
+     * Public, no-login link to the full program leaderboards - the "see everything"
+     * escape hatch from the top-10 lists in the roll-up email, for recipients (Tim)
+     * who have no wp-admin account.
+     *
+     * Deliberately NOT the cron token from fmf_settings: that one authorises real
+     * sends, and this URL sits in an inbox that gets forwarded. This key is
+     * read-only - worst case someone sees the rankings - and is a distinct HMAC
+     * string from unsubscribe_key() so a leaked link of one kind can never be
+     * replayed as the other.
+     */
+    public static function leaderboards_url() {
+        return add_query_arg(
+            array(
+                'fmf_leaderboard' => 1,
+                'k'               => self::leaderboards_key(),
+            ),
+            home_url( '/' )
+        );
+    }
+
+    public static function leaderboards_key() {
+        return substr( hash_hmac( 'sha256', 'fmf_leaderboard_v1', wp_salt( 'auth' ) ), 0, 16 );
     }
 
     private static function headers( $settings ) {

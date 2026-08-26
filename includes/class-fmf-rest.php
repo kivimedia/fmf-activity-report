@@ -1,3 +1,38 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 <?php
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
@@ -1002,5 +1037,39 @@ class FMF_REST {
             'Unsubscribed',
             array( 'response' => 200 )
         );
+    }
+
+    /**
+     * Public, tokenised full-leaderboard page: the "see the full list" button in the
+     * roll-up email. Same shape as maybe_handle_unsubscribe_query() above - HMAC key
+     * in the query string, hash_equals check, no login.
+     *
+     * Read-only by construction: it renders the aggregate rankings and nothing else.
+     * The email's per-person "who watched what" section is not reproduced.
+     */
+    public static function maybe_handle_leaderboard_query() {
+        if ( empty( $_GET['fmf_leaderboard'] ) ) {
+            return;
+        }
+        $key = sanitize_text_field( wp_unslash( $_GET['k'] ?? '' ) );
+        if ( ! $key ) {
+            wp_die( 'Invalid leaderboard link.', 'Leaderboards', array( 'response' => 400 ) );
+        }
+        if ( ! hash_equals( FMF_Mailer::leaderboards_key(), $key ) ) {
+            wp_die( 'Invalid leaderboard signature.', 'Leaderboards', array( 'response' => 403 ) );
+        }
+
+        $settings  = get_option( 'fmf_settings', array() );
+        $course_id = ! empty( $settings['course_id'] ) ? intval( $settings['course_id'] ) : FMF_DEFAULT_COURSE_ID;
+
+        list( $week_start_gmt, $week_end_gmt ) = FMF_Report_Builder::previous_week_bounds_gmt();
+        $rollup = FMF_Report_Builder::build_program_rollup( $course_id, $week_start_gmt, $week_end_gmt );
+
+        nocache_headers();
+        header( 'X-Robots-Tag: noindex, nofollow', true );
+        header( 'Content-Type: text/html; charset=utf-8' );
+
+        include FMF_PLUGIN_DIR . 'templates/leaderboard-public.php';
+        exit;
     }
 }

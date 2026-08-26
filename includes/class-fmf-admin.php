@@ -31,6 +31,51 @@ class FMF_Admin {
             'dashicons-email-alt',
             58
         );
+
+        // Explicit first submenu, so the sidebar reads "Weekly Report" instead of
+        // WordPress's auto-duplicated parent title next to "Leaderboards".
+        add_submenu_page(
+            'fmf-activity-report',
+            '15 Min Florist Reports',
+            'Weekly Report',
+            'manage_options',
+            'fmf-activity-report',
+            array( __CLASS__, 'render' )
+        );
+
+        // Slug keeps the "fmf-activity-report" prefix on purpose: assets() gates the
+        // stylesheet on that substring, so this page gets the CSS for free.
+        add_submenu_page(
+            'fmf-activity-report',
+            'Leaderboards',
+            'Leaderboards',
+            'manage_options',
+            'fmf-activity-report-leaderboards',
+            array( __CLASS__, 'render_leaderboards' )
+        );
+    }
+
+    /**
+     * Full, untruncated leaderboards. Builds the roll-up on visit - that is a few
+     * seconds of queries on a large course, which is exactly why this lives on its
+     * own page instead of on the main settings screen.
+     */
+    public static function render_leaderboards() {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            return;
+        }
+
+        $settings  = get_option( 'fmf_settings', array() );
+        $course_id = ! empty( $settings['course_id'] ) ? intval( $settings['course_id'] ) : FMF_DEFAULT_COURSE_ID;
+
+        list( $week_start_gmt, $week_end_gmt ) = FMF_Report_Builder::previous_week_bounds_gmt();
+
+        $started       = microtime( true );
+        $rollup        = FMF_Report_Builder::build_program_rollup( $course_id, $week_start_gmt, $week_end_gmt );
+        $build_seconds = microtime( true ) - $started;
+        $public_url    = FMF_Mailer::leaderboards_url();
+
+        include FMF_PLUGIN_DIR . 'templates/leaderboards-page.php';
     }
 
     public static function assets( $hook ) {

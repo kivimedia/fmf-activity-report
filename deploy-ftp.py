@@ -18,7 +18,7 @@ ENV_FILE   = REPO_ROOT / '.fmf-deploy.env'
 # /wp-json/wp/v2/plugins (which dir is `active`) + /wp-json/fmf/v1/diagnose version.
 PLUGIN_SLUG = 'fmf-activity-report-main'
 
-INCLUDE_DIRS = {'includes', 'templates', 'templates/emails', 'assets', 'assets/css'}
+INCLUDE_DIRS = {'includes', 'templates', 'templates/emails', 'templates/partials', 'assets', 'assets/css'}
 SKIP_TOPLEVEL = {'docs', 'plans', '.git', '.github', '.idea', '.vscode'}
 
 

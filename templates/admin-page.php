@@ -92,7 +92,7 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
 
   <section class="fmf-panel" style="margin-top:24px;">
     <h2>Program roll-up for Tim</h2>
-    <p class="description">A single weekly digest across <strong>all</strong> shops &mdash; everyone who watched anything last week (owners <em>and</em> staff), grouped by shop, the Top 10 most active shops and Top 10 classes watched (this week + all time), with a count of the shops that had no activity. Sent automatically every Monday alongside the per-shop reports, to the CC admin + office addresses in Settings above. Preview it, send yourself a test copy, or send it for real right now.</p>
+    <p class="description">A single weekly digest across <strong>all</strong> shops &mdash; everyone who watched anything last week (owners <em>and</em> staff), grouped by shop, the Top 10 most active shops and Top 10 classes watched (this week + all time), with a count of the shops that had no activity. Sent automatically every Monday alongside the per-shop reports, to the CC admin + office addresses in Settings above. Preview it, send yourself a test copy, or send it for real right now. The email links out to the full, untruncated rankings on the <a href="admin.php?page=fmf-activity-report-leaderboards">Leaderboards</a> page.</p>
     <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap;">
       <a class="button" target="_blank" href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=fmf_preview_rollup' ), 'fmf_preview_rollup' ) ); ?>">Preview program roll-up</a>
       <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline;margin:0;">

@@ -6,6 +6,8 @@
  *  $week_start_label, $week_end_label,
  *  $shops, $shops_active, $shops_total, $people_active, $lessons_total, $shops_silent,
  *  $top_shops_week, $top_lessons_week, $top_shops_alltime, $top_lessons_alltime,
+ *  $leaderboard_limit, $leaderboard_shops_all, $leaderboard_class_all, $leaderboard_truncated,
+ *  $leaderboards_url,
  *  $admin_url, $is_test
  */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
@@ -153,7 +155,7 @@ $brand_ink    = '#2a2740';
         <?php if ( ! empty( $top_shops_week ) || ! empty( $top_shops_alltime ) ) : ?>
         <tr>
           <td style="padding:8px 32px 0;">
-            <h3 style="margin:14px 0 4px;font-size:16px;color:<?php echo esc_attr( $brand_purple ); ?>;">Top 10 most active shops</h3>
+            <h3 style="margin:14px 0 4px;font-size:16px;color:<?php echo esc_attr( $brand_purple ); ?>;">Top <?php echo intval( $leaderboard_limit ); ?> most active shops</h3>
             <?php
             $fmf_render_leaderboard( $fmf_shop_rows( $top_shops_week ), 'This week' );
             $fmf_render_leaderboard( $fmf_shop_rows( $top_shops_alltime ), 'All time' );
@@ -165,11 +167,30 @@ $brand_ink    = '#2a2740';
         <?php if ( ! empty( $top_lessons_week ) || ! empty( $top_lessons_alltime ) ) : ?>
         <tr>
           <td style="padding:8px 32px 0;">
-            <h3 style="margin:14px 0 4px;font-size:16px;color:<?php echo esc_attr( $brand_purple ); ?>;">Top 10 classes watched</h3>
+            <h3 style="margin:14px 0 4px;font-size:16px;color:<?php echo esc_attr( $brand_purple ); ?>;">Top <?php echo intval( $leaderboard_limit ); ?> classes watched</h3>
             <?php
             $fmf_render_leaderboard( $fmf_lesson_rows( $top_lessons_week ), 'This week' );
             $fmf_render_leaderboard( $fmf_lesson_rows( $top_lessons_alltime ), 'All time' );
             ?>
+          </td>
+        </tr>
+        <?php endif; ?>
+
+        <?php if ( $leaderboard_truncated ) : ?>
+        <tr>
+          <td style="padding:4px 32px 0;">
+            <div style="background:<?php echo esc_attr( $brand_cream ); ?>;border:1px solid #efe7d8;border-radius:8px;padding:16px 18px;text-align:center;">
+              <div style="font-size:13px;color:#766;line-height:1.55;margin-bottom:12px;">
+                Those are just the top <?php echo intval( $leaderboard_limit ); ?>. There are
+                <strong style="color:<?php echo esc_attr( $brand_ink ); ?>;"><?php echo intval( $leaderboard_shops_all ); ?> shops</strong> and
+                <strong style="color:<?php echo esc_attr( $brand_ink ); ?>;"><?php echo intval( $leaderboard_class_all ); ?> classes</strong>
+                on the board in total.
+              </div>
+              <a href="<?php echo esc_url( $leaderboards_url ); ?>" style="display:inline-block;background:<?php echo esc_attr( $brand_purple ); ?>;color:#fff;text-decoration:none;padding:12px 24px;border-radius:6px;font-weight:600;font-size:14px;">
+                See the full list
+              </a>
+              <div style="font-size:11px;color:#9a8a8a;margin-top:10px;">No login needed - opens straight to the full rankings.</div>
+            </div>
           </td>
         </tr>
         <?php endif; ?>
