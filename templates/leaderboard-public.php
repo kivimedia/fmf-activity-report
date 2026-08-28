@@ -28,6 +28,8 @@ $pub_ink    = '#2a2740';
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow,noarchive">
+<!-- The token is in the URL, so never leak it in a Referer header on outbound clicks. -->
+<meta name="referrer" content="no-referrer">
 <title>Leaderboards - The 15 Minute Florist</title>
 </head>
 <body style="margin:0;padding:0;background:<?php echo esc_attr( $pub_cream ); ?>;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:<?php echo esc_attr( $pub_ink ); ?>;">

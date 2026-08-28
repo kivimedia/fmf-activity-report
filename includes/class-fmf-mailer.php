@@ -233,8 +233,33 @@ class FMF_Mailer {
         );
     }
 
+    /**
+     * The secret in the public leaderboard link.
+     *
+     * Stored as its own rotatable option rather than derived from wp_salt(): a
+     * salt-derived key cannot be revoked in isolation, because rotating
+     * AUTH_KEY/AUTH_SALT to kill one leaked link would also invalidate every
+     * unsubscribe link and log out every user on the site. This can be rotated
+     * from the Leaderboards page with no other consequence.
+     *
+     * 32 URL-safe alphanumerics (~190 bits), compared with hash_equals.
+     */
     public static function leaderboards_key() {
-        return substr( hash_hmac( 'sha256', 'fmf_leaderboard_v1', wp_salt( 'auth' ) ), 0, 16 );
+        $token = get_option( 'fmf_leaderboard_token' );
+        if ( ! is_string( $token ) || strlen( $token ) < 24 ) {
+            $token = self::rotate_leaderboards_key();
+        }
+        return $token;
+    }
+
+    /**
+     * Issue a new link and invalidate the old one. Any link already sitting in an
+     * inbox stops working immediately, which is the point.
+     */
+    public static function rotate_leaderboards_key() {
+        $token = wp_generate_password( 32, false, false );
+        update_option( 'fmf_leaderboard_token', $token, false );
+        return $token;
     }
 
     private static function headers( $settings ) {

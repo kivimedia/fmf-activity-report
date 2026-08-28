@@ -28,6 +28,12 @@ $lb_week_end_label   = $rollup['week_end_label'];
 
   <section class="fmf-panel" style="margin-top:24px;">
     <h2>Shareable link</h2>
+    <?php if ( ! empty( $_GET['fmf_link_rotated'] ) ) : ?>
+      <div class="notice notice-success inline" style="margin:8px 0 12px;"><p>
+        New link issued. The previous URL no longer works &mdash; anyone still holding it
+        will get a 403. Next Monday's roll-up will carry the new one automatically.
+      </p></div>
+    <?php endif; ?>
     <p class="description">
       This is the link in the roll-up email's &ldquo;see the full list&rdquo; button. It needs no
       login, so it works for Tim and anyone else who only ever sees the email. It shows
@@ -38,9 +44,21 @@ $lb_week_end_label   = $rollup['week_end_label'];
         onclick="this.select();" style="width:100%;max-width:720px;font-family:monospace;font-size:12px;padding:6px 8px;">
     </p>
     <p class="description">
-      <a href="<?php echo esc_url( $public_url ); ?>" target="_blank" rel="noopener">Open it in a new tab &rarr;</a>
+      <a href="<?php echo esc_url( $public_url ); ?>" target="_blank" rel="noopener noreferrer">Open it in a new tab &rarr;</a>
       &nbsp;&middot;&nbsp; The link is stable &mdash; it keeps working week to week.
     </p>
+    <hr style="margin:16px 0;border:0;border-top:1px solid #eee;">
+    <p class="description" style="margin-bottom:8px;">
+      <strong>Treat this URL like a password.</strong> Anyone who has it can see the rankings
+      without logging in, and it will show up in server logs and browser history. If it ends up
+      somewhere it should not, issue a new one &mdash; the old URL stops working straight away.
+    </p>
+    <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>"
+      onsubmit="return confirm('Issue a new link? The current URL will stop working immediately, including in roll-up emails already sent.');">
+      <?php wp_nonce_field( 'fmf_regenerate_leaderboard_link' ); ?>
+      <input type="hidden" name="action" value="fmf_regenerate_leaderboard_link">
+      <?php submit_button( 'Issue a new link', 'secondary', 'submit', false ); ?>
+    </form>
   </section>
 
   <?php if ( null !== $build_seconds ) : ?>

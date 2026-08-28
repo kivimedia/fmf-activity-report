@@ -18,6 +18,7 @@ class FMF_Admin {
         add_action( 'admin_post_fmf_preview_rollup', array( __CLASS__, 'handle_preview_rollup' ) );
         add_action( 'admin_post_fmf_send_test_rollup', array( __CLASS__, 'handle_send_test_rollup' ) );
         add_action( 'admin_post_fmf_send_rollup_now', array( __CLASS__, 'handle_send_rollup_now' ) );
+        add_action( 'admin_post_fmf_regenerate_leaderboard_link', array( __CLASS__, 'handle_regenerate_leaderboard_link' ) );
         add_action( 'admin_enqueue_scripts',        array( __CLASS__, 'assets' ) );
     }
 
@@ -76,6 +77,24 @@ class FMF_Admin {
         $public_url    = FMF_Mailer::leaderboards_url();
 
         include FMF_PLUGIN_DIR . 'templates/leaderboards-page.php';
+    }
+
+
+    /**
+     * Rotate the public leaderboard link. Use this if the link has been forwarded
+     * somewhere it should not have been - the old URL 403s immediately.
+     */
+    public static function handle_regenerate_leaderboard_link() {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( 'Nope.' );
+        }
+        check_admin_referer( 'fmf_regenerate_leaderboard_link' );
+        FMF_Mailer::rotate_leaderboards_key();
+        wp_safe_redirect( add_query_arg(
+            array( 'page' => 'fmf-activity-report-leaderboards', 'fmf_link_rotated' => 1 ),
+            admin_url( 'admin.php' )
+        ) );
+        exit;
     }
 
     public static function assets( $hook ) {

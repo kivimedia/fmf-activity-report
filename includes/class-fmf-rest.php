@@ -1063,10 +1063,21 @@ class FMF_REST {
         $course_id = ! empty( $settings['course_id'] ) ? intval( $settings['course_id'] ) : FMF_DEFAULT_COURSE_ID;
 
         list( $week_start_gmt, $week_end_gmt ) = FMF_Report_Builder::previous_week_bounds_gmt();
-        $rollup = FMF_Report_Builder::build_program_rollup( $course_id, $week_start_gmt, $week_end_gmt );
+
+        // Cache the build for this route only. Nobody has to authenticate to reach
+        // this page, and each build runs a completions query per shop - without a
+        // cache the link doubles as a way to hammer the database by refreshing.
+        // The admin page stays uncached so it always shows live numbers.
+        $cache_key = 'fmf_leaderboard_' . intval( $course_id ) . '_' . FMF_Report_Builder::week_key_for( $week_start_gmt );
+        $rollup    = get_transient( $cache_key );
+        if ( ! is_array( $rollup ) ) {
+            $rollup = FMF_Report_Builder::build_program_rollup( $course_id, $week_start_gmt, $week_end_gmt );
+            set_transient( $cache_key, $rollup, 10 * MINUTE_IN_SECONDS );
+        }
 
         nocache_headers();
         header( 'X-Robots-Tag: noindex, nofollow', true );
+        header( 'Referrer-Policy: no-referrer', true );
         header( 'Content-Type: text/html; charset=utf-8' );
 
         include FMF_PLUGIN_DIR . 'templates/leaderboard-public.php';
