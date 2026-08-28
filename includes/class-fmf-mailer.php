@@ -138,7 +138,6 @@ class FMF_Mailer {
             || ( count( $full_shops_week ) > $limit )
             || ( count( $full_lessons_week ) > $limit );
 
-        $admin_url        = admin_url( 'admin.php?page=fmf-activity-report' );
         $leaderboards_url = self::leaderboards_url();
         $is_test          = ! empty( $override_to );
 

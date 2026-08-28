@@ -8,7 +8,7 @@
  *  $top_shops_week, $top_lessons_week, $top_shops_alltime, $top_lessons_alltime,
  *  $leaderboard_limit, $leaderboard_shops_all, $leaderboard_class_all, $leaderboard_truncated,
  *  $leaderboards_url,
- *  $admin_url, $is_test
+ *  $is_test
  */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
@@ -204,14 +204,6 @@ $brand_ink    = '#2a2740';
           </td>
         </tr>
         <?php endif; ?>
-
-        <tr>
-          <td align="center" style="padding:20px 32px 8px;">
-            <a href="<?php echo esc_url( $admin_url ); ?>" style="display:inline-block;background:<?php echo esc_attr( $brand_purple ); ?>;color:#fff;text-decoration:none;padding:14px 26px;border-radius:6px;font-weight:600;font-size:15px;">
-              Open the admin dashboard
-            </a>
-          </td>
-        </tr>
 
         <tr>
           <td style="padding:8px 32px 24px;text-align:center;font-size:12px;color:#9a8a8a;line-height:1.6;">
